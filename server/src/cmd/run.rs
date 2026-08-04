@@ -6,7 +6,9 @@ use std::path::PathBuf;
 use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::sync::watch;
-use tower_http::{compression::CompressionLayer, timeout::TimeoutLayer, trace::TraceLayer};
+use tower_http::{
+    compression::CompressionLayer, cors::CorsLayer, timeout::TimeoutLayer, trace::TraceLayer,
+};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
 
@@ -118,6 +120,11 @@ pub async fn run_foreground(config_path: PathBuf) -> anyhow::Result<()> {
         // Multipart 上传默认会受到 Axum 默认 body limit（约 2MB）影响，
         // 这里关闭默认限制，具体文件大小由业务层 max_file_size_mb 逐文件控制。
         .layer(DefaultBodyLimit::disable())
+        // 允许跨域访问：桌面客户端（Tauri）不受影响，
+        // 但浏览器开发模式（vite dev）下前端页面与 API 不同源，需要 CORS 头。
+        // allow_private_network：生产版客户端 webview 源为 tauri.localhost（公网域名），
+        // 浏览器 fetch 访问本机服务时受 Private Network Access 限制，需要该响应头。
+        .layer(CorsLayer::permissive().allow_private_network(true))
         .layer(CompressionLayer::new())
         .layer(TraceLayer::new_for_http())
         .layer(TimeoutLayer::with_status_code(

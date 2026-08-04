@@ -94,31 +94,53 @@ describe('useServerStore', () => {
     expect(store.defaultAlias).toBe('s2')
   })
 
-  it('should register client and update server', async () => {
+  it('should login (auto-register) client and update server', async () => {
     const store = useServerStore()
     store.addServer({ alias: 's1', serverUrl: 'http://s1/' })
     mockedHttpFetchWithRedirect.mockResolvedValue({
       ok: true,
-      json: async () => ({ api_key: 'ak', id: 'cid' }),
+      json: async () => ({ api_key: 'ak2', id: 'cid2', name: 'my-client', role: 'client' }),
     } as Response)
 
-    const result = await store.register('s1', 'my-client')
-    expect(result.apiKey).toBe('ak')
-    expect(result.clientId).toBe('cid')
-    expect(store.servers[0].apiKey).toBe('ak')
-    expect(store.servers[0].clientId).toBe('cid')
+    const result = await store.login('s1', 'my-client', 'secret-pw')
+    expect(result.apiKey).toBe('ak2')
+    expect(result.clientId).toBe('cid2')
+    expect(store.servers[0].apiKey).toBe('ak2')
+    expect(store.servers[0].clientId).toBe('cid2')
     expect(store.servers[0].clientName).toBe('my-client')
+
+    const [url, init] = mockedHttpFetchWithRedirect.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('http://s1/api/v1/client/auth/login')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body as string)).toEqual({ name: 'my-client', password: 'secret-pw' })
   })
 
-  it('should throw on failed registration', async () => {
+  it('should throw on failed login', async () => {
     const store = useServerStore()
     store.addServer({ alias: 's1', serverUrl: 'http://s1/' })
     mockedHttpFetchWithRedirect.mockResolvedValue({
       ok: false,
-      text: async () => 'bad request',
+      text: async () => 'unauthorized',
     } as Response)
 
-    await expect(store.register('s1', 'client')).rejects.toThrow('注册失败')
+    await expect(store.login('s1', 'client', 'wrong-pw')).rejects.toThrow('认证失败')
+    expect(store.servers[0].apiKey).toBeUndefined()
+  })
+
+  it('should throw on login for unknown server alias', async () => {
+    const store = useServerStore()
+    await expect(store.login('nope', 'client', 'pw')).rejects.toThrow('服务器不存在')
+  })
+
+  it('should throw on malformed login response', async () => {
+    const store = useServerStore()
+    store.addServer({ alias: 's1', serverUrl: 'http://s1/' })
+    mockedHttpFetchWithRedirect.mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 'cid' }),
+    } as Response)
+
+    await expect(store.login('s1', 'client', 'pw')).rejects.toThrow('认证响应格式错误')
   })
 
   it('should fetch services and cache them', async () => {

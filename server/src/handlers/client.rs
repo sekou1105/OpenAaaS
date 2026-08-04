@@ -19,12 +19,13 @@ use uuid::Uuid;
 use crate::{
     audit::{extract_client_ip, log_client_register},
     auth::AuthUser,
+    cas::{CasClient, CasError},
     error::{AppError, Result},
     models::{
         file::{FileCreatedBy, TaskFile},
         service::{Service, ServiceListItem, ServiceUsageResponse},
         task::{ListTasksQuery, Task, TaskResponse, TaskStatus},
-        user::{CreateUserRequest, UserResponse},
+        user::{CreateUserRequest, LoginRequest, UserResponse},
     },
     rate_limit::client_rate_limit_middleware,
     state::AppState,
@@ -40,6 +41,93 @@ struct GrantPermissionRequest {
 #[derive(Debug, serde::Deserialize)]
 struct UpdateProfileRequest {
     name: String,
+}
+
+/// 通过 CAS 统一认证验证用户凭据（仅在 cas.enabled 时执行）
+///
+/// 错误映射：密码缺失 → 400；凭据无效 → 401；CAS 服务网络/协议错误 → 502
+/// 注意：密码仅用于 CAS 验证，绝不入库、绝不写日志
+async fn verify_cas_credentials(
+    state: &AppState,
+    username: &str,
+    password: Option<&str>,
+) -> Result<()> {
+    if !state.config.cas.enabled {
+        return Ok(());
+    }
+
+    let password = password
+        .filter(|p| !p.is_empty())
+        .ok_or_else(|| AppError::BadRequest("启用统一认证时必须提供密码".to_string()))?;
+
+    let cas_client = CasClient::new(
+        &state.config.cas.server_url,
+        &state.config.cas.service_url,
+    );
+    cas_client
+        .verify_credentials(username, password)
+        .await
+        .map_err(|e| match e {
+            CasError::InvalidCredentials => {
+                AppError::Unauthorized("统一认证失败：用户名或密码错误".to_string())
+            }
+            CasError::ServiceNotAuthorized => {
+                tracing::error!("CAS service 未授权，请检查 cas.service_url 是否已在统一认证平台注册");
+                AppError::BadGateway("应用未授权：service 未在统一认证平台注册".to_string())
+            }
+            CasError::Locked => {
+                tracing::warn!("CAS 返回 423 Locked（防爆破/限流）");
+                AppError::RateLimited
+            }
+            e @ (CasError::Network(_) | CasError::Protocol(_)) => {
+                tracing::error!("CAS 统一认证服务异常: {}", e);
+                AppError::BadGateway("统一认证服务不可用".to_string())
+            }
+        })?;
+
+    Ok(())
+}
+
+/// 创建新的 Client 用户并返回明文 API Key（注册与登录自动注册共用）
+async fn create_client_user(state: &AppState, name: &str) -> Result<UserResponse> {
+    let user_id = uuid::Uuid::new_v4().to_string();
+    let api_key = format!(
+        "ak_client_{}",
+        uuid::Uuid::new_v4().to_string().replace("-", "")
+    );
+    let now = Utc::now();
+
+    let secret_key = state
+        .config
+        .secret_key
+        .as_deref()
+        .ok_or(AppError::Internal("secret_key 未配置".to_string()))?;
+    let api_key_hash = crate::auth::hash_api_key(secret_key, &api_key);
+
+    // 插入数据库
+    sqlx::query(
+        r#"
+        INSERT INTO users (id, api_key, name, role, created_at)
+        VALUES (?, ?, ?, 'client', ?)
+        "#,
+    )
+    .bind(&user_id)
+    .bind(&api_key_hash)
+    .bind(name)
+    .bind(now.to_rfc3339())
+    .execute(state.db.pool())
+    .await
+    .map_err(AppError::Database)?;
+
+    tracing::info!("用户注册: user_id={}, name={}", user_id, name);
+
+    Ok(UserResponse {
+        id: user_id,
+        name: name.to_string(),
+        api_key,
+        role: "client".to_string(),
+        created_at: now.to_rfc3339(),
+    })
 }
 
 /// 验证用户名格式
@@ -135,6 +223,7 @@ pub fn routes(state: AppState) -> Router<AppState> {
     let public_routes = Router::new()
         // 用户认证 - 公开
         .route("/auth/register", post(register))
+        .route("/auth/login", post(login))
         // 健康检查 - 公开
         .route("/health", get(health_check))
         // 服务状态 - 公开
@@ -922,7 +1011,10 @@ async fn register(
     // 0. 验证用户名格式
     let name = validate_username(&req.name)?;
 
-    // 1. 检查用户名是否已存在
+    // 1. 启用 CAS 时先通过统一认证验证凭据（密码仅用于认证，不入库、不写日志）
+    verify_cas_credentials(&state, name, req.password.as_deref()).await?;
+
+    // 2. 检查用户名是否已存在
     let existing: Option<i64> = sqlx::query_scalar("SELECT 1 FROM users WHERE name = ? LIMIT 1")
         .bind(name)
         .fetch_optional(state.db.pool())
@@ -933,14 +1025,57 @@ async fn register(
         return Err(AppError::Conflict(format!("用户名 '{}' 已存在", name)));
     }
 
-    // 生成用户ID和API Key
-    let user_id = uuid::Uuid::new_v4().to_string();
+    // 3. 创建用户并返回明文 API Key
+    Ok(Json(create_client_user(&state, name).await?))
+}
+
+/// 用户登录
+///
+/// 启用 CAS 时先通过统一认证验证凭据；验证通过后：
+/// - 用户已存在：重新签发 API Key（旧 Key 立即失效）
+/// - 用户不存在：自动创建（等同注册）
+/// 未启用 CAS 时仅按用户名查询，用户不存在返回 404
+async fn login(
+    State(state): State<AppState>,
+    req: axum::extract::Request,
+) -> Result<Json<UserResponse>> {
+    // 解析 JSON body
+    let bytes = axum::body::to_bytes(req.into_body(), state.config.server.max_body_size)
+        .await
+        .map_err(|e| AppError::BadRequest(format!("读取请求体失败: {}", e)))?;
+    let req: LoginRequest = serde_json::from_slice(&bytes)
+        .map_err(|e| AppError::BadRequest(format!("JSON 解析失败: {}", e)))?;
+
+    // 0. 验证用户名/密码格式（密码仅用于统一认证，不入库、不写日志）
+    let name = validate_username(&req.name)?;
+    if req.password.is_empty() {
+        return Err(AppError::BadRequest("密码不能为空".to_string()));
+    }
+
+    // 1. 启用 CAS 时先通过统一认证验证凭据
+    verify_cas_credentials(&state, name, Some(&req.password)).await?;
+
+    // 2. 查询用户
+    let user: Option<crate::models::user::User> =
+        sqlx::query_as("SELECT * FROM users WHERE name = ?")
+            .bind(name)
+            .fetch_optional(state.db.pool())
+            .await
+            .map_err(AppError::Database)?;
+
+    let Some(user) = user else {
+        if state.config.cas.enabled {
+            // CAS 验证通过但本地无账号：自动创建（等同注册）
+            return Ok(Json(create_client_user(&state, name).await?));
+        }
+        return Err(AppError::NotFound);
+    };
+
+    // 3. 重新签发 API Key（旧 Key 立即失效）
     let api_key = format!(
         "ak_client_{}",
         uuid::Uuid::new_v4().to_string().replace("-", "")
     );
-    let now = Utc::now();
-
     let secret_key = state
         .config
         .secret_key
@@ -948,29 +1083,21 @@ async fn register(
         .ok_or(AppError::Internal("secret_key 未配置".to_string()))?;
     let api_key_hash = crate::auth::hash_api_key(secret_key, &api_key);
 
-    // 插入数据库
-    sqlx::query(
-        r#"
-        INSERT INTO users (id, api_key, name, role, created_at)
-        VALUES (?, ?, ?, 'client', ?)
-        "#,
-    )
-    .bind(&user_id)
-    .bind(&api_key_hash)
-    .bind(name)
-    .bind(now.to_rfc3339())
-    .execute(state.db.pool())
-    .await
-    .map_err(AppError::Database)?;
+    sqlx::query("UPDATE users SET api_key = ? WHERE id = ?")
+        .bind(&api_key_hash)
+        .bind(&user.id)
+        .execute(state.db.pool())
+        .await
+        .map_err(AppError::Database)?;
 
-    tracing::info!("用户注册: user_id={}, name={}", user_id, name);
+    tracing::info!("用户登录: user_id={}, name={}", user.id, name);
 
     Ok(Json(UserResponse {
-        id: user_id,
-        name: name.to_string(),
+        id: user.id,
+        name: user.name,
         api_key,
-        role: "client".to_string(),
-        created_at: now.to_rfc3339(),
+        role: user.role.to_string(),
+        created_at: user.created_at.to_rfc3339(),
     }))
 }
 

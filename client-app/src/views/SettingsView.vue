@@ -12,6 +12,7 @@ const newAlias = ref('')
 const newUrl = ref('')
 const registerAlias = ref('')
 const registerName = ref('')
+const registerPassword = ref('')
 const showRegisterForm = ref(false)
 
 function addServer() {
@@ -53,12 +54,18 @@ async function doRegister() {
     uiStore.addToast('用户名不能为空', 'error')
     return
   }
+  if (!registerPassword.value) {
+    uiStore.addToast('密码不能为空', 'error')
+    return
+  }
   try {
     uiStore.setLoading(true)
-    await serverStore.register(registerAlias.value, registerName.value.trim())
+    // 注册与登录已合并：服务端在统一认证通过后自动创建用户（首次）或重签 Key（再次）
+    await serverStore.login(registerAlias.value, registerName.value.trim(), registerPassword.value)
     uiStore.addToast('注册成功', 'success')
     showRegisterForm.value = false
     registerName.value = ''
+    registerPassword.value = ''
   } catch (err) {
     const msg = err instanceof Error ? friendlyErrorMessage(err.message) : friendlyErrorMessage(String(err))
     uiStore.addToast(msg, 'error')
@@ -75,6 +82,7 @@ function openRegister(alias: string) {
 function closeRegister() {
   showRegisterForm.value = false
   registerName.value = ''
+  registerPassword.value = ''
 }
 </script>
 
@@ -136,7 +144,7 @@ function closeRegister() {
       <!-- Register form -->
       <div v-if="showRegisterForm" class="bg-bg-primary border border-border rounded-md p-4 mb-4">
         <p class="text-sm text-text-secondary mb-3">
-          注册客户端到服务器: <strong>{{ registerAlias }}</strong>
+          注册到服务器: <strong>{{ registerAlias }}</strong>
         </p>
         <div class="space-y-3">
           <div>
@@ -145,9 +153,18 @@ function closeRegister() {
               v-model="registerName"
               type="text"
               class="w-full px-3 py-2 bg-bg-secondary border border-border rounded-md text-sm focus:border-accent focus:outline-none"
-              placeholder="输入用户名"
+              placeholder="统一认证用户名"
             />
-            <p class="text-xs text-text-muted mt-1">长度不超过64字符，不含特殊字符</p>
+            <p class="text-xs text-text-muted mt-1">使用校园统一认证账号密码，首次使用将自动注册</p>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-text-secondary mb-1">密码 *</label>
+            <input
+              v-model="registerPassword"
+              type="password"
+              class="w-full px-3 py-2 bg-bg-secondary border border-border rounded-md text-sm focus:border-accent focus:outline-none"
+              placeholder="统一认证密码"
+            />
           </div>
           <div class="flex gap-2">
             <button

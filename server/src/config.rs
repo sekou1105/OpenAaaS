@@ -88,6 +88,30 @@ impl Default for TaskConfig {
     }
 }
 
+/// CAS 统一认证配置
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CasConfig {
+    /// 是否启用 CAS 统一认证；false 时注册/登录仅校验用户名（旧行为，便于本地开发）
+    #[serde(default = "default_cas_enabled")]
+    pub enabled: bool,
+    /// CAS 服务器地址，如 https://sso.buaa.edu.cn 或 http://127.0.0.1:9100（mock）
+    #[serde(default = "default_cas_server_url")]
+    pub server_url: String,
+    /// 在 CAS 白名单中注册的 service 地址
+    #[serde(default = "default_cas_service_url")]
+    pub service_url: String,
+}
+
+impl Default for CasConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_cas_enabled(),
+            server_url: default_cas_server_url(),
+            service_url: default_cas_service_url(),
+        }
+    }
+}
+
 /// 应用配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -103,6 +127,9 @@ pub struct AppConfig {
     /// 任务配置
     #[serde(default)]
     pub task: TaskConfig,
+    /// CAS 统一认证配置
+    #[serde(default)]
+    pub cas: CasConfig,
     /// Secret Key（用于HMAC哈希API Key）
     pub secret_key: Option<String>,
     /// 管理员 API Key
@@ -119,6 +146,7 @@ impl Default for AppConfig {
             database: DatabaseConfig::default(),
             agent: AgentConfig::default(),
             task: TaskConfig::default(),
+            cas: CasConfig::default(),
             secret_key: None,
             admin_api_key: None,
             log_level: default_log_level(),
@@ -234,6 +262,16 @@ impl AppConfig {
         lines.push("# 最大文件大小限制(MB)".to_string());
         lines.push(format!("max_file_size_mb = {}", self.task.max_file_size_mb));
         lines.push("".to_string());
+        lines.push("[cas]".to_string());
+        lines.push(
+            "# 是否启用 CAS 统一认证；false 时注册/登录仅校验用户名（便于本地开发）".to_string(),
+        );
+        lines.push(format!("enabled = {}", self.cas.enabled));
+        lines.push("# CAS 服务器地址（本地联调可指向 mock: http://127.0.0.1:9100）".to_string());
+        lines.push(format!("server_url = {:?}", self.cas.server_url));
+        lines.push("# 在 CAS 白名单中注册的 service 地址".to_string());
+        lines.push(format!("service_url = {:?}", self.cas.service_url));
+        lines.push("".to_string());
 
         lines.join("\n")
     }
@@ -288,6 +326,18 @@ fn default_max_file_size_mb() -> usize {
 
 fn default_log_level() -> String {
     "info".to_string()
+}
+
+fn default_cas_enabled() -> bool {
+    false
+}
+
+fn default_cas_server_url() -> String {
+    "https://sso.buaa.edu.cn".to_string()
+}
+
+fn default_cas_service_url() -> String {
+    "http://localhost:8080/cas/callback".to_string()
 }
 
 #[cfg(test)]
@@ -584,6 +634,7 @@ max_file_size_mb = 100
             database: DatabaseConfig::default(),
             agent: AgentConfig::default(),
             task: TaskConfig::default(),
+            cas: CasConfig::default(),
             log_level: default_log_level(),
         };
 
@@ -591,6 +642,51 @@ max_file_size_mb = 100
         assert_eq!(config.server.addr.to_string(), "0.0.0.0:8080");
         assert_eq!(config.database.url, "sqlite:./data/app.db");
         assert_eq!(config.log_level, "info");
+    }
+
+    #[test]
+    fn test_default_cas_config() {
+        let _lock = CONFIG_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let config = CasConfig::default();
+        assert!(!config.enabled);
+        assert_eq!(config.server_url, "https://sso.buaa.edu.cn");
+        assert_eq!(config.service_url, "http://localhost:8080/cas/callback");
+    }
+
+    #[test]
+    fn test_cas_config_from_toml() {
+        let _lock = CONFIG_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+        // 未配置 [cas] 节时使用默认值（enabled=false，保持旧行为）
+        let config: AppConfig = toml::from_str("").unwrap();
+        assert!(!config.cas.enabled);
+        assert_eq!(config.cas.server_url, "https://sso.buaa.edu.cn");
+
+        // 配置 [cas] 节后按配置生效
+        let toml_content = r#"
+[cas]
+enabled = true
+server_url = "http://127.0.0.1:9100"
+service_url = "http://test.local/cas"
+"#;
+        let config: AppConfig = toml::from_str(toml_content).unwrap();
+        assert!(config.cas.enabled);
+        assert_eq!(config.cas.server_url, "http://127.0.0.1:9100");
+        assert_eq!(config.cas.service_url, "http://test.local/cas");
+    }
+
+    #[test]
+    fn test_runtime_toml_roundtrip_cas() {
+        let _lock = CONFIG_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+        // 生成的 runtime TOML（含 [cas] 节）应能被解析回来
+        let config = AppConfig::default();
+        let toml_str = config.to_runtime_toml();
+        assert!(toml_str.contains("[cas]"));
+        let parsed: AppConfig = toml::from_str(&toml_str).unwrap();
+        assert_eq!(parsed.cas.enabled, config.cas.enabled);
+        assert_eq!(parsed.cas.server_url, config.cas.server_url);
+        assert_eq!(parsed.cas.service_url, config.cas.service_url);
     }
 
     #[test]

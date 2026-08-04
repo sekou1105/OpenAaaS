@@ -1,6 +1,7 @@
 //! 集成测试共享工具模块
 
 pub mod admin_api;
+pub mod cas_auth;
 pub mod client_api;
 pub mod files_api;
 pub mod services_api;
@@ -23,7 +24,8 @@ pub struct TestApp {
 }
 
 impl TestApp {
-    pub async fn new() -> Self {
+    /// 默认测试配置（临时数据库文件 + 临时文件目录）
+    pub fn default_config() -> AppConfig {
         let db_file = std::env::temp_dir()
             .join(format!("test_open_aaas_{}.db", Uuid::new_v4().simple()))
             .to_str()
@@ -31,10 +33,10 @@ impl TestApp {
             .replace('\\', "/");
         let database_url = format!("sqlite:///{}?mode=rwc", db_file);
 
-        let config = AppConfig {
+        AppConfig {
             secret_key: Some(TEST_SECRET_KEY.to_string()),
             database: open_aaas_server::config::DatabaseConfig {
-                url: database_url.clone(),
+                url: database_url,
             },
             task: open_aaas_server::config::TaskConfig {
                 file_storage_path: std::env::temp_dir()
@@ -46,7 +48,16 @@ impl TestApp {
                 ..Default::default()
             },
             ..Default::default()
-        };
+        }
+    }
+
+    pub async fn new() -> Self {
+        Self::with_config(Self::default_config()).await
+    }
+
+    /// 使用自定义配置创建测试应用（如启用 CAS 统一认证）
+    pub async fn with_config(config: AppConfig) -> Self {
+        let database_url = config.database.url.clone();
 
         let db = Database::new(&database_url)
             .await

@@ -50,6 +50,10 @@ pub enum AppError {
     #[error("资源冲突: {0}")]
     Conflict(String),
 
+    /// 上游服务不可用
+    #[error("上游服务不可用: {0}")]
+    BadGateway(String),
+
     /// 请求过于频繁
     #[error("请求过于频繁，请稍后再试")]
     RateLimited,
@@ -107,6 +111,7 @@ impl IntoResponse for AppError {
             }
             AppError::Forbidden => (StatusCode::FORBIDDEN, "Forbidden", self.to_string()),
             AppError::Conflict(msg) => (StatusCode::CONFLICT, "Conflict", msg.clone()),
+            AppError::BadGateway(msg) => (StatusCode::BAD_GATEWAY, "BadGateway", msg.clone()),
             AppError::Other(e) => {
                 tracing::error!("Unknown error: {}", e);
                 (
@@ -207,6 +212,12 @@ mod tests {
     }
 
     #[test]
+    fn test_bad_gateway_error_display() {
+        let err = AppError::BadGateway("统一认证服务不可用".to_string());
+        assert_eq!(err.to_string(), "上游服务不可用: 统一认证服务不可用");
+    }
+
+    #[test]
     fn test_other_error_display() {
         let err = AppError::Other(anyhow::anyhow!("自定义错误"));
         assert_eq!(err.to_string(), "自定义错误");
@@ -301,6 +312,17 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_bad_gateway_into_response() {
+        let err = AppError::BadGateway("统一认证服务不可用".to_string());
+        let response = err.into_response();
+        let (status, error, message) = extract_response_info(response).await;
+
+        assert_eq!(status, 502);
+        assert_eq!(error, "BadGateway");
+        assert_eq!(message, "统一认证服务不可用");
+    }
+
+    #[tokio::test]
     async fn test_rate_limited_into_response() {
         let err = AppError::RateLimited;
         let response = err.into_response();
@@ -383,6 +405,7 @@ mod tests {
         let _ = AppError::Auth("test".to_string());
         let _ = AppError::Forbidden;
         let _ = AppError::Conflict("test".to_string());
+        let _ = AppError::BadGateway("test".to_string());
         let _ = AppError::RateLimited;
         let _ = AppError::Other(anyhow::anyhow!("test"));
     }
@@ -433,6 +456,7 @@ mod tests {
             (AppError::Auth("".to_string()), 401),
             (AppError::Forbidden, 403),
             (AppError::Conflict("".to_string()), 409),
+            (AppError::BadGateway("".to_string()), 502),
             (AppError::RateLimited, 429),
             (AppError::Other(anyhow::anyhow!("")), 500),
         ];

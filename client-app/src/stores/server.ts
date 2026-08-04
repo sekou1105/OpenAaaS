@@ -114,25 +114,33 @@ export const useServerStore = defineStore('server', () => {
     }
   }
 
-  async function register(alias: string, name: string): Promise<{ apiKey: string; clientId: string }> {
+  /**
+   * 统一认证登录（注册与登录合并）
+   *
+   * 服务端 /auth/login 在统一认证（CAS）通过后会：
+   * - 用户不存在：自动创建（等同注册）
+   * - 用户已存在：重新签发 API Key
+   * 因此客户端只需这一个入口即可完成注册和登录。
+   */
+  async function login(alias: string, name: string, password: string): Promise<{ apiKey: string; clientId: string }> {
     const server = servers.value.find((s) => s.alias === alias)
     if (!server) throw new Error('服务器不存在')
 
-    const url = `${server.serverUrl.replace(/\/$/, '')}/api/v1/client/auth/register`
+    const url = `${server.serverUrl.replace(/\/$/, '')}/api/v1/client/auth/login`
     const res = await httpFetchWithRedirect(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, password }),
     })
 
     if (!res.ok) {
       const message = await parseServerError(res)
-      throw new Error(`注册失败: ${res.status} ${message}`)
+      throw new Error(`认证失败: ${res.status} ${message}`)
     }
 
     const data = await res.json()
     if (!data.api_key || !data.id) {
-      throw new Error('注册响应格式错误')
+      throw new Error('认证响应格式错误')
     }
 
     updateServer(alias, {
@@ -218,7 +226,7 @@ export const useServerStore = defineStore('server', () => {
     removeServer,
     setDefault,
     updateServer,
-    register,
+    login,
     fetchServices,
     getCachedServices,
   }

@@ -4,6 +4,7 @@
 
 pub mod audit;
 pub mod auth;
+pub mod cas;
 pub mod config;
 pub mod db;
 pub mod error;
@@ -17,7 +18,7 @@ pub mod state;
 pub mod test_utils;
 
 // 导出配置相关
-pub use config::{AgentConfig, AppConfig, DatabaseConfig, ServerConfig, TaskConfig};
+pub use config::{AgentConfig, AppConfig, CasConfig, DatabaseConfig, ServerConfig, TaskConfig};
 
 // 导出数据库
 pub use db::Database;

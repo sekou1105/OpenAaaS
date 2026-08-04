@@ -28,7 +28,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # 中间件
-tower-http = { version = "0.7", features = ["trace", "compression-gzip", "timeout"] }
+tower-http = { version = "0.7", features = ["trace", "compression-gzip", "timeout", "cors"] }
 
 # 环境变量加载
 dotenvy = "0.15"
@@ -51,6 +51,9 @@ hex = "0.4"
 
 # URL编码
 urlencoding = "2.1"
+
+# HTTP客户端（CAS 统一认证）
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 
 # 流式 IO
 tokio-util = { version = "0.7", features = ["io"] }

@@ -83,6 +83,16 @@ impl User {
 pub struct CreateUserRequest {
     pub name: String,
     pub role: Option<UserRole>,
+    /// 统一认证密码（启用 CAS 时必填；仅用于认证，不入库、不写日志）
+    pub password: Option<String>,
+}
+
+/// 用户登录请求
+#[derive(Debug, Deserialize)]
+pub struct LoginRequest {
+    pub name: String,
+    /// 统一认证密码（启用 CAS 时必填；仅用于认证，不入库、不写日志）
+    pub password: String,
 }
 
 /// 更新用户角色请求
@@ -320,6 +330,49 @@ mod tests {
 
         let request: CreateUserRequest = serde_json::from_str(json).unwrap();
         assert_eq!(request.role, Some(UserRole::Client));
+    }
+
+    #[test]
+    fn test_create_user_request_with_password() {
+        let json = r#"{
+            "name": "New User",
+            "password": "secret"
+        }"#;
+
+        let request: CreateUserRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(request.name, "New User");
+        assert_eq!(request.password, Some("secret".to_string()));
+    }
+
+    #[test]
+    fn test_create_user_request_without_password() {
+        // 兼容旧的无密码请求（cas.enabled=false 时使用）
+        let json = r#"{"name": "New User"}"#;
+
+        let request: CreateUserRequest = serde_json::from_str(json).unwrap();
+        assert!(request.password.is_none());
+    }
+
+    // ==================== LoginRequest 测试 ====================
+
+    #[test]
+    fn test_login_request() {
+        let json = r#"{
+            "name": "Test User",
+            "password": "secret"
+        }"#;
+
+        let request: LoginRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(request.name, "Test User");
+        assert_eq!(request.password, "secret");
+    }
+
+    #[test]
+    fn test_login_request_missing_password() {
+        let json = r#"{"name": "Test User"}"#;
+
+        let result: serde_json::Result<LoginRequest> = serde_json::from_str(json);
+        assert!(result.is_err());
     }
 
     // ==================== UserResponse 测试 ====================

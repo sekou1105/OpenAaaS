@@ -31,3 +31,11 @@ result_retention_days = 7
 file_storage_path = "./data/files"
 # 最大文件大小限制(MB)
 max_file_size_mb = 50
+
+[cas]
+# 是否启用 CAS 统一认证（校园网统一身份认证）；false 时注册/登录仅校验用户名（旧行为，便于本地开发）
+enabled = false
+# CAS 统一认证服务器地址
+server_url = "https://sso.buaa.edu.cn"
+# 在 CAS 白名单中注册的 service 地址（需向统一认证管理员申请注册，未注册会返回“应用未授权”）
+service_url = "http://openaaastest.buaa.edu.cn"
