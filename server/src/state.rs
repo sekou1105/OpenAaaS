@@ -3,6 +3,15 @@
 use crate::{config::AppConfig, db::Database, rate_limit::RateLimiter};
 use std::sync::Arc;
 
+/// CAS 页面跳转认证的一次性交换码（用后即焚，60 秒有效）
+#[derive(Debug, Clone)]
+pub struct CasExchangeCode {
+    /// 完整用户响应（含明文 api_key）
+    pub user: crate::models::user::UserResponse,
+    /// 签发时间
+    pub issued_at: std::time::Instant,
+}
+
 /// 应用共享状态
 #[derive(Debug, Clone)]
 pub struct AppState {
@@ -12,6 +21,8 @@ pub struct AppState {
     pub db: Database,
     /// API Key 限流器
     pub rate_limiter: Arc<RateLimiter>,
+    /// CAS 一次性交换码缓存：code -> CasExchangeCode
+    pub cas_codes: Arc<dashmap::DashMap<String, CasExchangeCode>>,
 }
 
 impl AppState {
@@ -31,6 +42,7 @@ impl AppState {
             config: Arc::new(config),
             db,
             rate_limiter: Arc::new(RateLimiter::new()),
+            cas_codes: Arc::new(dashmap::DashMap::new()),
         })
     }
 

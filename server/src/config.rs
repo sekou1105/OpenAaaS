@@ -98,8 +98,12 @@ pub struct CasConfig {
     #[serde(default = "default_cas_server_url")]
     pub server_url: String,
     /// 在 CAS 白名单中注册的 service 地址
+    ///（页面跳转模式下应为 server 的回调地址 /api/v1/client/auth/cas/callback）
     #[serde(default = "default_cas_service_url")]
     pub service_url: String,
+    /// CAS 认证通过后跳转回的 Web 页面地址（client-web）
+    #[serde(default = "default_cas_web_url")]
+    pub web_url: String,
 }
 
 impl Default for CasConfig {
@@ -108,6 +112,7 @@ impl Default for CasConfig {
             enabled: default_cas_enabled(),
             server_url: default_cas_server_url(),
             service_url: default_cas_service_url(),
+            web_url: default_cas_web_url(),
         }
     }
 }
@@ -337,7 +342,11 @@ fn default_cas_server_url() -> String {
 }
 
 fn default_cas_service_url() -> String {
-    "http://localhost:8080/cas/callback".to_string()
+    "http://localhost:8080/api/v1/client/auth/cas/callback".to_string()
+}
+
+fn default_cas_web_url() -> String {
+    "http://localhost:5174".to_string()
 }
 
 #[cfg(test)]
@@ -650,7 +659,11 @@ max_file_size_mb = 100
         let config = CasConfig::default();
         assert!(!config.enabled);
         assert_eq!(config.server_url, "https://sso.buaa.edu.cn");
-        assert_eq!(config.service_url, "http://localhost:8080/cas/callback");
+        assert_eq!(
+            config.service_url,
+            "http://localhost:8080/api/v1/client/auth/cas/callback"
+        );
+        assert_eq!(config.web_url, "http://localhost:5174");
     }
 
     #[test]

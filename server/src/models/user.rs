@@ -102,7 +102,7 @@ pub struct UpdateUserRoleRequest {
 }
 
 /// 用户响应
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct UserResponse {
     pub id: String,
     pub name: String,

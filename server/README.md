@@ -165,12 +165,22 @@ service_url = "http://localhost:8080/cas/callback" # 在 CAS 白名单注册的 
 
 ## 统一认证（CAS）
 
-服务端支持将用户注册/登录接入基于 CAS 协议的校园网统一身份认证（RESTful 模式）。
+服务端支持将用户注册/登录接入基于 CAS 协议的校园网统一身份认证，支持两种模式：
+
+### 模式一：RESTful（桌面客户端 / API 调用）
 
 - **`POST /api/v1/client/auth/register`**：请求体 `{"name": "学号/工号", "password": "统一认证密码"}`。启用 CAS 时，服务端先向 CAS 验证凭据（TGT → ST → serviceValidate），通过后才创建用户并返回 `api_key`。
 - **`POST /api/v1/client/auth/login`**：请求体同上。CAS 验证通过后，已存在用户重新签发 `api_key`（旧 Key 立即失效）；不存在则自动创建（等同注册）。
 
 密码仅用于 CAS 验证，**不入库、不写日志**。
+
+### 模式二：页面跳转（Web 端，推荐）
+
+密码不经过本系统，用户在 CAS 页面完成认证：
+
+1. Web 页面跳转 **`GET /api/v1/client/auth/cas/login`** → 302 到 CAS 统一登录页
+2. 用户在 CAS 登录后，浏览器被带回 **`GET /api/v1/client/auth/cas/callback?ticket=ST-xxx`**，服务端验票（server 唯一一次主动请求 CAS）→ 查/建用户 → 生成一次性交换码（60 秒有效）→ 302 回 `{cas.web_url}/#/cas/callback?code=xxx`
+3. Web 页面用交换码调 **`POST /api/v1/client/auth/cas/exchange`** 换取 `api_key`（码用后即焚），后续走 Bearer 认证
 
 ### 配置
 
@@ -178,7 +188,8 @@ service_url = "http://localhost:8080/cas/callback" # 在 CAS 白名单注册的 
 [cas]
 enabled = true
 server_url = "https://sso.buaa.edu.cn"            # 统一认证服务器
-service_url = "http://openaaastest.buaa.edu.cn"   # 需在 CAS 白名单注册
+service_url = "http://openaaastest.buaa.edu.cn/api/v1/client/auth/cas/callback"  # 需在 CAS 白名单注册
+web_url = "http://localhost:5174"                 # client-web 页面地址（模式二回跳用）
 ```
 
 `enabled = false` 时保持旧行为：注册/登录仅校验用户名，密码可省略，便于无校园网环境开发。
@@ -187,7 +198,7 @@ service_url = "http://openaaastest.buaa.edu.cn"   # 需在 CAS 白名单注册
 
 1. **service 白名单**：向统一认证管理员注册 `service_url`（精确到 scheme + 域名 + 路径）。未注册时注册/登录会返回 `502 应用未授权：service 未在统一认证平台注册`。
 2. **IP 白名单**：`/v1/tickets` REST 接口要求服务器出口 IP 在白名单内。
-3. 认证失败时的错误语义：`401` 用户名或密码错误；`502` CAS 不可达或应用未授权。
+3. 认证失败时的错误语义：`401` 用户名或密码错误；`429` CAS 限流锁定；`502` CAS 不可达或应用未授权。
 
 ## 管理员 API Key
 

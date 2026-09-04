@@ -79,6 +79,7 @@ impl TestApp {
             config: Arc::new(config.clone()),
             db: db.clone(),
             rate_limiter: Arc::new(RateLimiter::new()),
+            cas_codes: Arc::new(dashmap::DashMap::new()),
         };
 
         let router = handlers::routes(state.clone()).with_state(state.clone());

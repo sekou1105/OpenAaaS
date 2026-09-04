@@ -73,7 +73,7 @@ async fn verify_cas_credentials(
             }
             CasError::ServiceNotAuthorized => {
                 tracing::error!("CAS service 未授权，请检查 cas.service_url 是否已在统一认证平台注册");
-                AppError::BadGateway("应用未授权：service 未在统一认证平台注册".to_string())
+                AppError::BadGateway("应用未授权：service 未注册或服务器 IP 未在统一认证平台白名单".to_string())
             }
             CasError::Locked => {
                 tracing::warn!("CAS 返回 423 Locked（防爆破/限流）");
@@ -224,6 +224,10 @@ pub fn routes(state: AppState) -> Router<AppState> {
         // 用户认证 - 公开
         .route("/auth/register", post(register))
         .route("/auth/login", post(login))
+        // CAS 页面跳转认证（Web 端）- 公开
+        .route("/auth/cas/login", get(cas_login))
+        .route("/auth/cas/callback", get(cas_callback))
+        .route("/auth/cas/exchange", post(cas_exchange))
         // 健康检查 - 公开
         .route("/health", get(health_check))
         // 服务状态 - 公开
@@ -1072,6 +1076,14 @@ async fn login(
     };
 
     // 3. 重新签发 API Key（旧 Key 立即失效）
+    Ok(Json(reissue_api_key(&state, &user).await?))
+}
+
+/// 重新为已有用户签发 API Key（旧 Key 立即失效），登录与 CAS 跳转回调共用
+async fn reissue_api_key(
+    state: &AppState,
+    user: &crate::models::user::User,
+) -> Result<UserResponse> {
     let api_key = format!(
         "ak_client_{}",
         uuid::Uuid::new_v4().to_string().replace("-", "")
@@ -1090,15 +1102,133 @@ async fn login(
         .await
         .map_err(AppError::Database)?;
 
-    tracing::info!("用户登录: user_id={}, name={}", user.id, name);
+    tracing::info!("用户登录: user_id={}, name={}", user.id, user.name);
 
-    Ok(Json(UserResponse {
-        id: user.id,
-        name: user.name,
+    Ok(UserResponse {
+        id: user.id.clone(),
+        name: user.name.clone(),
         api_key,
         role: user.role.to_string(),
         created_at: user.created_at.to_rfc3339(),
-    }))
+    })
+}
+
+// ============================================================================
+// CAS 页面跳转认证（Web 端）
+// ============================================================================
+
+/// CAS 交换码有效期（秒）
+const CAS_CODE_TTL_SECS: u64 = 60;
+
+/// GET /auth/cas/login
+/// 302 跳转到统一认证登录页（页面跳转模式入口，供 Web 端使用）
+async fn cas_login(State(state): State<AppState>) -> Result<axum::response::Redirect> {
+    if !state.config.cas.enabled {
+        return Err(AppError::BadRequest("未启用统一认证".to_string()));
+    }
+    let url = format!(
+        "{}/login?service={}",
+        state.config.cas.server_url.trim_end_matches('/'),
+        urlencoding::encode(&state.config.cas.service_url)
+    );
+    Ok(axum::response::Redirect::temporary(&url))
+}
+
+/// CAS 回调查询参数
+#[derive(Debug, Deserialize)]
+struct CasCallbackQuery {
+    ticket: String,
+}
+
+/// GET /auth/cas/callback?ticket=ST-xxx
+/// CAS 认证成功后浏览器被重定向到这里：验证 ticket → 查/建用户 →
+/// 生成一次性交换码 → 302 回 Web 页面（成功带 code，失败带 error）
+async fn cas_callback(
+    State(state): State<AppState>,
+    Query(q): Query<CasCallbackQuery>,
+) -> axum::response::Redirect {
+    let web_url = state.config.cas.web_url.trim_end_matches('/');
+    let fail = |msg: &str| {
+        axum::response::Redirect::temporary(&format!(
+            "{}/#/cas/callback?error={}",
+            web_url,
+            urlencoding::encode(msg)
+        ))
+    };
+
+    if !state.config.cas.enabled {
+        return fail("未启用统一认证");
+    }
+
+    // 1. 向 CAS 验证 ticket（server 端唯一一次主动请求 CAS）
+    let cas = CasClient::new(&state.config.cas.server_url, &state.config.cas.service_url);
+    let cas_user = match cas.validate_ticket(&q.ticket).await {
+        Ok(u) => u,
+        Err(CasError::InvalidCredentials) => return fail("票据无效或已过期"),
+        Err(e) => {
+            tracing::error!("CAS 验票异常: {}", e);
+            return fail("统一认证服务不可用");
+        }
+    };
+
+    // 2. 查/建本地用户（与登录逻辑一致）
+    let name = match validate_username(&cas_user.username) {
+        Ok(n) => n,
+        Err(_) => return fail("统一认证用户名不合法"),
+    };
+    let existing: std::result::Result<Option<crate::models::user::User>, _> =
+        sqlx::query_as("SELECT * FROM users WHERE name = ?")
+            .bind(name)
+            .fetch_optional(state.db.pool())
+            .await;
+    let user = match existing {
+        Ok(Some(u)) => match reissue_api_key(&state, &u).await {
+            Ok(r) => r,
+            Err(_) => return fail("签发 API Key 失败"),
+        },
+        Ok(None) => match create_client_user(&state, name).await {
+            Ok(r) => r,
+            Err(_) => return fail("创建用户失败"),
+        },
+        Err(_) => return fail("数据库错误"),
+    };
+
+    // 3. 生成一次性交换码（60 秒有效，用后即焚）
+    state
+        .cas_codes
+        .retain(|_, v| v.issued_at.elapsed() < std::time::Duration::from_secs(CAS_CODE_TTL_SECS));
+    let code = format!("cas_code_{}", Uuid::new_v4().simple());
+    state.cas_codes.insert(
+        code.clone(),
+        crate::state::CasExchangeCode {
+            user,
+            issued_at: std::time::Instant::now(),
+        },
+    );
+
+    axum::response::Redirect::temporary(&format!("{}/#/cas/callback?code={}", web_url, code))
+}
+
+/// CAS 交换码请求
+#[derive(Debug, Deserialize)]
+struct CasExchangeRequest {
+    code: String,
+}
+
+/// POST /auth/cas/exchange
+/// Web 页面用一次性交换码换取 api_key（码用后即焚）
+async fn cas_exchange(
+    State(state): State<AppState>,
+    Json(req): Json<CasExchangeRequest>,
+) -> Result<Json<UserResponse>> {
+    state
+        .cas_codes
+        .retain(|_, v| v.issued_at.elapsed() < std::time::Duration::from_secs(CAS_CODE_TTL_SECS));
+    let (_, entry) = state
+        .cas_codes
+        .remove(&req.code)
+        .ok_or_else(|| AppError::BadRequest("交换码无效或已过期".to_string()))?;
+    Ok(Json(entry.user))
 }
 
 /// 更新用户资料（改名）

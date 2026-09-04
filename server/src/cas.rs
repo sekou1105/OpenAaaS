@@ -16,8 +16,8 @@ pub enum CasError {
     #[error("统一认证失败：用户名或密码错误")]
     InvalidCredentials,
 
-    /// 应用未授权（service 未在 CAS 白名单注册，换 ST 时被拒绝）
-    #[error("应用未授权：service 未在统一认证平台注册")]
+    /// 应用未授权（service 未注册或调用方 IP 未授权，换 ST 时被拒绝）
+    #[error("应用未授权：service 未注册或服务器 IP 未在统一认证平台白名单")]
     ServiceNotAuthorized,
 
     /// 账号/请求被锁定（真实 CAS 在短时间内多次取 TGT 后返回 423 Locked）
@@ -79,6 +79,11 @@ impl CasClient {
         let tgt = self.get_tgt(username, password).await?;
         let st = self.get_st(&tgt).await?;
         self.validate_st(&st).await
+    }
+
+    /// 验证 ST（页面跳转模式下，浏览器从 CAS 回调带来的 ticket），成功返回用户信息
+    pub async fn validate_ticket(&self, ticket: &str) -> Result<CasUser, CasError> {
+        self.validate_st(ticket).await
     }
 
     /// 第 1 步：提交凭据获取 TGT
@@ -279,6 +284,24 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_success_xml_real_cas_format() {
+        // 北航真实 CAS 返回格式：字段包裹在 <cas:attributes> 中（实测 2026-08）
+        let xml = r#"<cas:serviceResponse xmlns:cas='http://www.yale.edu/tp/cas'>
+    <cas:authenticationSuccess>
+        <cas:user>ZB2557433</cas:user>
+        <cas:attributes>
+            <cas:name>尹伟</cas:name>
+            <cas:employeeNumber>ZB2557433</cas:employeeNumber>
+            </cas:attributes>
+    </cas:authenticationSuccess>
+</cas:serviceResponse>"#;
+        let user = parse_service_response(xml).unwrap();
+        assert_eq!(user.username, "ZB2557433");
+        assert_eq!(user.name, Some("尹伟".to_string()));
+        assert_eq!(user.employee_number, Some("ZB2557433".to_string()));
+    }
+
+    #[test]
     fn test_parse_failure_xml() {
         let err = parse_service_response(FAILURE_XML).unwrap_err();
         assert!(matches!(err, CasError::InvalidCredentials));
@@ -358,7 +381,7 @@ mod tests {
             .contains("bad"));
         assert_eq!(
             CasError::ServiceNotAuthorized.to_string(),
-            "应用未授权：service 未在统一认证平台注册"
+            "应用未授权：service 未注册或服务器 IP 未在统一认证平台白名单"
         );
         assert!(CasError::Locked.to_string().contains("锁定"));
     }

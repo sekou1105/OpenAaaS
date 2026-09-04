@@ -47,6 +47,7 @@ pub async fn create_test_app() -> (Router, AppState, SqlitePool) {
         config: Arc::new(config),
         db,
         rate_limiter: Arc::new(RateLimiter::new()),
+        cas_codes: Arc::new(dashmap::DashMap::new()),
     };
 
     // 创建路由

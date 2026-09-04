@@ -164,6 +164,148 @@ async fn get_with_auth(app: &TestApp, uri: &str, api_key: &str) -> StatusCode {
     response.status()
 }
 
+/// GET 请求，返回 (状态码, Location 头)
+async fn get_redirect(app: &TestApp, uri: &str) -> (StatusCode, String) {
+    let response = app
+        .router
+        .clone()
+        .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let status = response.status();
+    let location = response
+        .headers()
+        .get(axum::http::header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    (status, location)
+}
+
+/// 直接向 stub CAS 走 TGT→ST 流程，拿到一个有效 ST
+async fn issue_st_from_stub(cas_addr: std::net::SocketAddr) -> String {
+    let http = reqwest::Client::new();
+    let resp = http
+        .post(format!("http://{}/v1/tickets", cas_addr))
+        .form(&[("username", "redirectuser"), ("password", STUB_VALID_PASSWORD)])
+        .send()
+        .await
+        .unwrap();
+    let location = resp.headers().get("location").unwrap().to_str().unwrap();
+    let tgt = location.rsplit('/').next().unwrap();
+    http.post(format!("http://{}/v1/tickets/{}", cas_addr, tgt))
+        .form(&[("service", "http://test.local/cas")])
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap()
+}
+
+// ============================================================================
+// CAS 页面跳转认证测试
+// ============================================================================
+
+#[tokio::test]
+async fn test_cas_login_redirects_to_sso() {
+    let app = create_cas_test_app().await;
+
+    let (status, location) = get_redirect(&app, "/api/v1/client/auth/cas/login").await;
+
+    assert_eq!(status, StatusCode::TEMPORARY_REDIRECT);
+    assert!(location.contains("/login?service="), "location: {}", location);
+    assert!(location.contains("test.local"), "location: {}", location);
+
+    app.cleanup().await;
+}
+
+#[tokio::test]
+async fn test_cas_callback_and_exchange_flow() {
+    // 启动 stub 并记录地址（exchange 流程需要独立拿 ST）
+    let cas_addr = start_stub_cas(false).await;
+    let mut config = TestApp::default_config();
+    config.cas.enabled = true;
+    config.cas.server_url = format!("http://{}", cas_addr);
+    config.cas.service_url = "http://test.local/cas".to_string();
+    config.cas.web_url = "http://web.local".to_string();
+    let app = TestApp::with_config(config).await;
+
+    // 1. 模拟浏览器从 CAS 带回 ticket
+    let st = issue_st_from_stub(cas_addr).await;
+    let (status, location) = get_redirect(
+        &app,
+        &format!("/api/v1/client/auth/cas/callback?ticket={}", st),
+    )
+    .await;
+
+    // 2. 302 回 Web 页面并携带一次性交换码
+    assert_eq!(status, StatusCode::TEMPORARY_REDIRECT);
+    assert!(location.starts_with("http://web.local/#/cas/callback?code="), "location: {}", location);
+    let code = location.rsplit("code=").next().unwrap();
+
+    // 3. 用交换码换 api_key
+    let (status, body) = post_json(&app, "/api/v1/client/auth/cas/exchange", &json!({"code": code})).await;
+    assert_eq!(status, StatusCode::OK);
+    let user: UserResponse = serde_json::from_value(body).unwrap();
+    assert_eq!(user.name, "redirectuser");
+    assert!(user.api_key.starts_with("ak_client_"));
+
+    // 4. api_key 可用
+    assert_eq!(
+        get_with_auth(&app, "/api/v1/client/tasks", &user.api_key).await,
+        StatusCode::OK
+    );
+
+    // 5. 交换码一次性：再次使用 → 400
+    let (status, _body) = post_json(&app, "/api/v1/client/auth/cas/exchange", &json!({"code": code})).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    app.cleanup().await;
+}
+
+#[tokio::test]
+async fn test_cas_callback_invalid_ticket_redirects_with_error() {
+    let mut config = TestApp::default_config();
+    config.cas.enabled = true;
+    config.cas.server_url = format!("http://{}", start_stub_cas(false).await);
+    config.cas.service_url = "http://test.local/cas".to_string();
+    config.cas.web_url = "http://web.local".to_string();
+    let app = TestApp::with_config(config).await;
+
+    let (status, location) = get_redirect(
+        &app,
+        "/api/v1/client/auth/cas/callback?ticket=ST-FAKE-999",
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::TEMPORARY_REDIRECT);
+    assert!(location.starts_with("http://web.local/#/cas/callback?error="), "location: {}", location);
+
+    app.cleanup().await;
+}
+
+#[tokio::test]
+async fn test_cas_login_disabled_returns_400() {
+    let app = TestApp::new().await; // 默认 cas.enabled = false
+
+    let response = app
+        .router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/client/auth/cas/login")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    app.cleanup().await;
+}
+
 // ============================================================================
 // 注册 + CAS 测试
 // ============================================================================
@@ -239,7 +381,7 @@ async fn test_register_service_not_authorized() {
     .await;
 
     assert_eq!(status, StatusCode::BAD_GATEWAY);
-    assert_eq!(body["message"], "应用未授权：service 未在统一认证平台注册");
+    assert_eq!(body["message"], "应用未授权：service 未注册或服务器 IP 未在统一认证平台白名单");
 
     app.cleanup().await;
 }
