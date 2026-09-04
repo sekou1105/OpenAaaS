@@ -23,7 +23,7 @@ import { ArrowLeft } from '@lucide/vue'
             <p class="font-semibold text-sm">添加服务器</p>
             <p class="text-sm text-text-secondary mt-1">
               打开「设置」→「添加服务器」，填写别名和服务器地址。
-              服务器地址请联系网络信息中心或服务提供方获取。
+              服务器地址：<code class="rounded bg-bg-inset border border-border px-1.5 py-0.5 text-xs text-accent">http://10.64.198.139</code>
             </p>
           </div>
         </li>
@@ -83,13 +83,6 @@ import { ArrowLeft } from '@lucide/vue'
           <p class="font-semibold">提示「认证失败 401」或「无效的 API Key」？</p>
           <p class="text-text-secondary mt-1">
             常见于服务端重启或密钥重置后。到「设置」页对对应服务器点「重新登录」即可自动重签 Key，无需其他操作。
-          </p>
-        </div>
-        <div>
-          <p class="font-semibold">任务失败提示「回答文件过多」？</p>
-          <p class="text-text-secondary mt-1">
-            说明服务工作区里存在多个候选文件（包括历史任务残留或系统说明文件）。
-            请进入该服务的工作区，仅保留本次任务需要的业务文件后重新提交。
           </p>
         </div>
         <div>
