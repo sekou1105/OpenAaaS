@@ -7,11 +7,13 @@ import {
   Clock,
   FileText,
   PlayCircle,
+  Search,
   Server,
   Sparkles,
   XCircle,
 } from '@lucide/vue'
 import { useTaskStore, type Task, type TaskStatus } from '@/stores/task'
+import { useUiStore } from '@/stores/ui'
 import StatusBadge from '@/components/StatusBadge.vue'
 
 type FilterKey = 'all' | 'queued' | 'running' | 'completed' | 'failed'
@@ -24,8 +26,11 @@ type DisplayTask = Task & {
 
 const router = useRouter()
 const taskStore = useTaskStore()
+const uiStore = useUiStore()
 
 const filter = ref<FilterKey>('all')
+const searchQuery = ref('')
+const serviceFilter = ref<string>('all')
 
 function isoMinutesAgo(minutes: number): string {
   return new Date(Date.now() - minutes * 60 * 1000).toISOString()
@@ -112,9 +117,27 @@ const sortedTasks = computed(() =>
   [...sourceTasks.value].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
 )
 
+const serviceOptions = computed(() => {
+  const seen = new Map<string, string>()
+  for (const t of sortedTasks.value) {
+    if (!t.isDemo && !seen.has(t.serviceId)) seen.set(t.serviceId, t.serviceName)
+  }
+  return [...seen.entries()].map(([id, name]) => ({ id, name }))
+})
+
 const filteredTasks = computed(() => {
-  if (filter.value !== 'all') return sortedTasks.value.filter((t) => displayState(t.status) === filter.value)
-  return sortedTasks.value
+  let result = sortedTasks.value
+  if (filter.value !== 'all') result = result.filter((t) => displayState(t.status) === filter.value)
+  if (serviceFilter.value !== 'all') result = result.filter((t) => t.serviceId === serviceFilter.value)
+  const q = searchQuery.value.trim().toLowerCase()
+  if (q) {
+    result = result.filter((t) =>
+      t.title.toLowerCase().includes(q) ||
+      t.serviceName.toLowerCase().includes(q) ||
+      (t.taskPrompt || '').toLowerCase().includes(q),
+    )
+  }
+  return result
 })
 
 const filterItems = computed(() => {
@@ -219,6 +242,27 @@ function openTask(task: DisplayTask) {
   if (task.isDemo) return
   router.push(`/task/${task.id}`)
 }
+
+// 清空历史：仅清除已结束任务，进行中/排队中保留；二次点击确认
+const finishedCount = computed(
+  () => taskStore.tasks.filter((t) => ['completed', 'failed', 'cancelled'].includes(t.status)).length,
+)
+const confirmingClear = ref(false)
+let clearConfirmTimer: number | undefined
+
+function handleClearHistory() {
+  if (!confirmingClear.value) {
+    confirmingClear.value = true
+    clearConfirmTimer = window.setTimeout(() => {
+      confirmingClear.value = false
+    }, 3000)
+    return
+  }
+  window.clearTimeout(clearConfirmTimer)
+  confirmingClear.value = false
+  const removed = taskStore.clearFinishedTasks()
+  uiStore.addToast(`已清空 ${removed} 条历史任务`, 'success')
+}
 </script>
 
 <template>
@@ -255,6 +299,38 @@ function openTask(task: DisplayTask) {
       </div>
     </div>
 
+    <div class="mb-4 flex flex-wrap items-center gap-3">
+      <div class="relative min-w-[220px] flex-1">
+        <Search class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" aria-hidden="true" />
+        <input
+          v-model="searchQuery"
+          type="search"
+          class="w-full rounded-lg border border-border bg-bg-card py-2 pl-9 pr-3 text-sm shadow-sm focus:border-accent focus:outline-none"
+          placeholder="搜索任务标题、描述或服务名..."
+          aria-label="搜索任务"
+        />
+      </div>
+      <select
+        v-model="serviceFilter"
+        class="rounded-lg border border-border bg-bg-card px-3 py-2 text-sm shadow-sm focus:border-accent focus:outline-none"
+        aria-label="按服务筛选"
+      >
+        <option value="all">全部服务</option>
+        <option v-for="s in serviceOptions" :key="s.id" :value="s.id">{{ s.name }}</option>
+      </select>
+      <button
+        v-if="!isDemoMode && finishedCount > 0"
+        type="button"
+        class="rounded-lg px-3 py-2 text-sm font-semibold shadow-sm transition-colors"
+        :class="confirmingClear
+          ? 'bg-danger text-white hover:opacity-90'
+          : 'border border-danger/30 bg-bg-card text-danger hover:bg-danger/5'"
+        @click="handleClearHistory"
+      >
+        {{ confirmingClear ? `确认清空 ${finishedCount} 条历史？` : '清空历史' }}
+      </button>
+    </div>
+
     <div class="mb-6 inline-flex rounded-lg border border-border bg-bg-card p-1 shadow-sm">
       <button
         v-for="f in filterItems"
@@ -280,7 +356,7 @@ function openTask(task: DisplayTask) {
 
     <div v-if="filteredTasks.length === 0" class="rounded-lg border border-border bg-bg-card py-20 text-center text-text-muted shadow-sm">
       <FileText class="mx-auto mb-3 h-8 w-8 text-text-muted" aria-hidden="true" />
-      <p class="text-sm">暂无任务</p>
+      <p class="text-sm">{{ searchQuery.trim() || serviceFilter !== 'all' ? '没有符合条件的任务' : '暂无任务' }}</p>
     </div>
 
     <div v-else class="space-y-3">

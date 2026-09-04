@@ -168,6 +168,40 @@ describe('useServerStore', () => {
     expect(store.getCachedServices('s1')).toHaveLength(1)
   })
 
+  it('should mark auth expired on 401 and clear on success', async () => {
+    const store = useServerStore()
+    store.addServer({ alias: 's1', serverUrl: 'http://s1/', apiKey: 'ak' })
+
+    // 401 → 标记过期
+    mockedHttpFetch.mockResolvedValueOnce({ ok: false, status: 401 } as Response)
+    await expect(store.fetchServices('s1')).rejects.toThrow('401')
+    expect(store.isAuthExpired('s1')).toBe(true)
+    expect(store.isAuthExpired()).toBe(true) // 默认服务器
+
+    // 成功 → 清除标记
+    mockedHttpFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => [],
+    } as Response)
+    await store.fetchServices('s1')
+    expect(store.isAuthExpired('s1')).toBe(false)
+  })
+
+  it('should clear auth expired flag on successful login', async () => {
+    const store = useServerStore()
+    store.addServer({ alias: 's1', serverUrl: 'http://s1/', apiKey: 'ak' })
+    store.markAuthExpired('s1', true)
+    expect(store.isAuthExpired('s1')).toBe(true)
+
+    mockedHttpFetchWithRedirect.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ api_key: 'new-key', id: 'uid-1' }),
+    } as Response)
+    await store.login('s1', 'user', 'pass')
+    expect(store.isAuthExpired('s1')).toBe(false)
+  })
+
   it('should throw when fetching services without apiKey', async () => {
     const store = useServerStore()
     store.addServer({ alias: 's1', serverUrl: 'http://s1/' })

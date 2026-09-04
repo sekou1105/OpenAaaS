@@ -21,9 +21,13 @@ const service = computed(() => {
   return undefined
 })
 
-const title = ref('')
-const taskPrompt = ref('')
-const outputPrompt = ref('')
+function queryString(v: unknown): string {
+  return typeof v === 'string' ? v : ''
+}
+
+const title = ref(queryString(route.query.title))
+const taskPrompt = ref(queryString(route.query.taskPrompt))
+const outputPrompt = ref(queryString(route.query.outputPrompt))
 const files = ref<FileList | null>(null)
 const step = ref(1)
 const dragOver = ref(false)

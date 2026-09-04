@@ -29,6 +29,11 @@ const loads = ref<Record<string, ServiceLoad | null>>({})
 const fetchError = ref<string | null>(null)
 const isRefreshing = ref(false)
 
+/** 401 认证失败：默认服务器 Key 已失效，或错误信息含 401 */
+const isAuthFailure = computed(
+  () => serverStore.isAuthExpired() || (fetchError.value?.includes('401') ?? false),
+)
+
 const seedServiceIds = new Set([
   'image-processing',
   'code-review',
@@ -241,12 +246,27 @@ onMounted(async () => {
       </div>
       <p class="mb-2 text-lg font-bold text-info">加载失败</p>
       <p class="text-sm text-text-secondary">{{ fetchError }}</p>
-      <button
-        class="mt-4 rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-accent-hover"
-        @click="retryFetch"
-      >
-        重试
-      </button>
+      <p v-if="isAuthFailure" class="mt-2 text-sm text-text-secondary">
+        当前登录状态已失效（常见于服务端重启或密钥重置后），重新登录即可自动重签 API Key。
+      </p>
+      <div class="mt-4 flex items-center justify-center gap-3">
+        <router-link
+          v-if="isAuthFailure"
+          to="/settings"
+          class="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-accent-hover"
+        >
+          前往设置重新登录 →
+        </router-link>
+        <button
+          class="rounded-md px-4 py-2 text-sm font-semibold shadow-sm transition-colors"
+          :class="isAuthFailure
+            ? 'border border-border text-text-secondary hover:bg-bg-tertiary'
+            : 'bg-accent text-white hover:bg-accent-hover'"
+          @click="retryFetch"
+        >
+          重试
+        </button>
+      </div>
     </div>
 
     <!-- Skeleton grid: fetching or no cache -->

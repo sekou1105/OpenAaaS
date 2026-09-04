@@ -191,4 +191,69 @@ describe('useTaskStore', () => {
     expect(store.getTask('t1')?.isPolling).toBe(true)
     expect(store.getTask('t2')?.isPolling).toBe(false)
   })
+
+  it('should retry a failed task by re-submitting with same params', async () => {
+    const store = useTaskStore()
+    store.tasks = [
+      createSampleTask({
+        id: 't1',
+        status: 'failed',
+        title: '失败任务',
+        taskPrompt: '原描述',
+        outputPrompt: '原输出要求',
+      }),
+    ]
+    const { loadState } = await import('@/stores/persist')
+    vi.mocked(loadState).mockReturnValue({
+      servers: [
+        { alias: 's1', serverUrl: 'http://s1/', apiKey: 'ak' },
+      ],
+    })
+
+    mockedUploadWithFiles.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        id: 'retry-task',
+        status: 'pending',
+        created_at: '2024-01-01T00:00:00Z',
+      }),
+    } as Response)
+
+    const newTaskId = await store.retryTask('t1')
+    expect(newTaskId).toBe('retry-task')
+    expect(store.tasks).toHaveLength(2)
+    const newTask = store.getTask('retry-task')
+    expect(newTask?.title).toBe('失败任务')
+    expect(newTask?.taskPrompt).toBe('原描述')
+    expect(newTask?.outputPrompt).toBe('原输出要求')
+    expect(newTask?.status).toBe('pending')
+  })
+
+  it('should reject retry for non-existent or active task', async () => {
+    const store = useTaskStore()
+    store.tasks = [createSampleTask({ id: 't1', status: 'running' })]
+    await expect(store.retryTask('missing')).rejects.toThrow('任务不存在')
+    await expect(store.retryTask('t1')).rejects.toThrow('任务尚未结束')
+  })
+
+  it('should clear only finished tasks and keep active ones', () => {
+    const store = useTaskStore()
+    store.tasks = [
+      createSampleTask({ id: 't1', status: 'completed' }),
+      createSampleTask({ id: 't2', status: 'failed' }),
+      createSampleTask({ id: 't3', status: 'cancelled' }),
+      createSampleTask({ id: 't4', status: 'running', isPolling: false }),
+      createSampleTask({ id: 't5', status: 'pending', isPolling: false }),
+    ]
+    const removed = store.clearFinishedTasks()
+    expect(removed).toBe(3)
+    expect(store.tasks.map((t) => t.id)).toEqual(['t4', 't5'])
+  })
+
+  it('should return 0 when nothing to clear', () => {
+    const store = useTaskStore()
+    store.tasks = [createSampleTask({ id: 't1', status: 'running' })]
+    expect(store.clearFinishedTasks()).toBe(0)
+    expect(store.tasks).toHaveLength(1)
+  })
 })

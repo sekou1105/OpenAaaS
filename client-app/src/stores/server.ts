@@ -61,6 +61,22 @@ export const useServerStore = defineStore('server', () => {
   const services = ref<Record<string, ServiceCache>>((persisted.services || {}) as Record<string, ServiceCache>)
   const isFetching = ref(false)
   const fetchError = ref<string | null>(null)
+  /** 会话级记录：哪些服务器的 API Key 已被服务端判定失效（401） */
+  const authExpiredAliases = ref<string[]>([])
+
+  function markAuthExpired(alias: string, expired: boolean) {
+    const idx = authExpiredAliases.value.indexOf(alias)
+    if (expired && idx === -1) {
+      authExpiredAliases.value.push(alias)
+    } else if (!expired && idx !== -1) {
+      authExpiredAliases.value.splice(idx, 1)
+    }
+  }
+
+  function isAuthExpired(alias?: string): boolean {
+    const target = alias ?? defaultAlias.value
+    return !!target && authExpiredAliases.value.includes(target)
+  }
 
   const defaultServer = computed<Server | undefined>(() =>
     servers.value.find((s) => s.isDefault) || servers.value[0],
@@ -148,6 +164,7 @@ export const useServerStore = defineStore('server', () => {
       clientId: data.id,
       clientName: name,
     })
+    markAuthExpired(alias, false)
 
     return { apiKey: data.api_key, clientId: data.id }
   }
@@ -168,6 +185,11 @@ export const useServerStore = defineStore('server', () => {
       const res = await httpFetch(url, {
         headers: { Authorization: `Bearer ${server.apiKey}` },
       })
+
+      if (res.status === 401) {
+        markAuthExpired(target, true)
+        throw new Error('认证失败: 401 登录状态已过期，请到「设置」重新登录')
+      }
 
       if (!res.ok) {
         const message = await parseServerError(res)
@@ -191,6 +213,7 @@ export const useServerStore = defineStore('server', () => {
         fetchedAt: Date.now(),
         items,
       }
+      markAuthExpired(target, false)
       persist()
 
       return items
@@ -229,5 +252,8 @@ export const useServerStore = defineStore('server', () => {
     login,
     fetchServices,
     getCachedServices,
+    authExpiredAliases,
+    isAuthExpired,
+    markAuthExpired,
   }
 })

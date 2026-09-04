@@ -186,6 +186,15 @@ export const useTaskStore = defineStore('task', () => {
         headers: { Authorization: `Bearer ${server.apiKey}` },
       })
 
+      if (res.status === 401) {
+        // API Key 失效：停止无效重试，引导用户重新登录
+        stopPolling(taskId)
+        updateTask(taskId, {
+          pollError: '登录状态已过期（401），请到「设置」重新登录，然后回到任务详情点击「恢复轮询」',
+        })
+        return
+      }
+
       if (!res.ok) {
         const message = await parseServerError(res)
         throw new Error(`查询失败: ${res.status} ${message}`)
@@ -358,6 +367,25 @@ export const useTaskStore = defineStore('task', () => {
     }
   }
 
+  /**
+   * 一键重试：复用原任务的 serviceId / title / prompts 重新提交一个新任务。
+   * 注意：原附件 File 对象不在持久化数据中，重试不含附件。
+   */
+  async function retryTask(taskId: string): Promise<string> {
+    const task = getTask(taskId)
+    if (!task) throw new Error('任务不存在')
+    if (!isTerminalStatus(task.status)) throw new Error('任务尚未结束，无法重试')
+
+    return submitTask({
+      serverAlias: task.serverAlias,
+      serviceId: task.serviceId,
+      serviceName: task.serviceName,
+      title: task.title,
+      taskPrompt: task.taskPrompt,
+      outputPrompt: task.outputPrompt,
+    })
+  }
+
   function removeTask(taskId: string) {
     stopPolling(taskId)
     const idx = tasks.value.findIndex((t) => t.id === taskId)
@@ -365,6 +393,22 @@ export const useTaskStore = defineStore('task', () => {
       tasks.value.splice(idx, 1)
       persist()
     }
+  }
+
+  /**
+   * 清空历史：删除所有已结束（完成/失败/已取消）的任务记录，
+   * 进行中与排队中的任务保留。返回删除条数。
+   */
+  function clearFinishedTasks(): number {
+    const finished = tasks.value.filter((t) => isTerminalStatus(t.status))
+    for (const t of finished) {
+      stopPolling(t.id)
+    }
+    if (finished.length > 0) {
+      tasks.value = tasks.value.filter((t) => !isTerminalStatus(t.status))
+      persist()
+    }
+    return finished.length
   }
 
   function resumePolling() {
@@ -390,8 +434,10 @@ export const useTaskStore = defineStore('task', () => {
     startPolling,
     stopPolling,
     cancelTask,
+    retryTask,
     fetchResult,
     removeTask,
+    clearFinishedTasks,
     updateTask,
     resumePolling,
     resumePollingForTask,

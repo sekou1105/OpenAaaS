@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useServerStore } from '@/stores/server'
 import { useUiStore } from '@/stores/ui'
 import { friendlyErrorMessage } from '@/utils/error'
@@ -62,7 +62,7 @@ async function doRegister() {
     uiStore.setLoading(true)
     // 注册与登录已合并：服务端在统一认证通过后自动创建用户（首次）或重签 Key（再次）
     await serverStore.login(registerAlias.value, registerName.value.trim(), registerPassword.value)
-    uiStore.addToast('注册成功', 'success')
+    uiStore.addToast(registerIsRelogin.value ? '重新登录成功' : '注册成功', 'success')
     showRegisterForm.value = false
     registerName.value = ''
     registerPassword.value = ''
@@ -78,6 +78,12 @@ function openRegister(alias: string) {
   registerAlias.value = alias
   showRegisterForm.value = true
 }
+
+/** 目标服务器已有 Key 或 Key 已失效时，登录动作视为「重新登录」 */
+const registerIsRelogin = computed(() => {
+  const server = serverStore.servers.find((s) => s.alias === registerAlias.value)
+  return !!server?.apiKey || serverStore.isAuthExpired(registerAlias.value)
+})
 
 function closeRegister() {
   showRegisterForm.value = false
@@ -144,7 +150,7 @@ function closeRegister() {
       <!-- Register form -->
       <div v-if="showRegisterForm" class="bg-bg-primary border border-border rounded-md p-4 mb-4">
         <p class="text-sm text-text-secondary mb-3">
-          注册到服务器: <strong>{{ registerAlias }}</strong>
+          {{ registerIsRelogin ? '重新登录到服务器' : '注册到服务器' }}: <strong>{{ registerAlias }}</strong>
         </p>
         <div class="space-y-3">
           <div>
@@ -171,7 +177,7 @@ function closeRegister() {
               class="px-4 py-2 bg-accent text-white rounded-md text-sm font-medium hover:bg-accent-hover transition-colors"
               @click="doRegister"
             >
-              注册
+              {{ registerIsRelogin ? '重新登录' : '注册' }}
             </button>
             <button
               class="px-4 py-2 border border-border rounded-md text-sm font-medium hover:bg-bg-tertiary transition-colors"
@@ -211,7 +217,13 @@ function closeRegister() {
                 已注册
               </span>
               <span
-                v-else
+                v-if="serverStore.isAuthExpired(server.alias)"
+                class="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-danger/10 text-danger"
+              >
+                登录已过期
+              </span>
+              <span
+                v-if="!server.apiKey"
                 class="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-danger/10 text-danger"
               >
                 未注册
@@ -234,6 +246,16 @@ function closeRegister() {
               @click="openRegister(server.alias)"
             >
               注册
+            </button>
+            <button
+              v-else
+              class="px-2 py-1 text-xs rounded transition-colors"
+              :class="serverStore.isAuthExpired(server.alias)
+                ? 'bg-danger text-white hover:opacity-90'
+                : 'border border-border hover:bg-bg-tertiary'"
+              @click="openRegister(server.alias)"
+            >
+              重新登录
             </button>
             <button
               v-if="!server.isDefault"

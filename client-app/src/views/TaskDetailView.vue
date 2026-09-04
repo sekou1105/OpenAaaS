@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
@@ -8,6 +8,7 @@ import Skeleton from '@/components/Skeleton.vue'
 import { useUiStore } from '@/stores/ui'
 import { useServerStore } from '@/stores/server'
 import { friendlyErrorMessage } from '@/utils/error'
+import { classifyTaskError } from '@/utils/errorClassify'
 import { httpFetch } from '@/composables/useHttp'
 import { save } from '@tauri-apps/plugin-dialog'
 import { writeFile } from '@tauri-apps/plugin-fs'
@@ -32,8 +33,8 @@ const statusLabelMap: Record<string, string> = {
   running: '进行中',
   completed: '已完成',
   failed: '失败',
-  cancelled: '失败',
-  cancelling: '失败',
+  cancelled: '已取消',
+  cancelling: '取消中',
 }
 
 const statusClassMap: Record<string, string> = {
@@ -91,7 +92,69 @@ async function handleCancel() {
 
 function handleResubmit() {
   if (!task.value) return
-  router.push(`/submit/${task.value.serviceId}`)
+  router.push({
+    path: `/submit/${task.value.serviceId}`,
+    query: {
+      title: task.value.title,
+      taskPrompt: task.value.taskPrompt,
+      outputPrompt: task.value.outputPrompt,
+    },
+  })
+}
+
+const canRetry = computed(() => {
+  const s = task.value?.status
+  return s === 'failed' || s === 'cancelled'
+})
+
+const classifiedError = computed(() => {
+  const msg = task.value?.errorMessage
+  if (msg) return classifyTaskError(msg)
+  if (task.value?.status === 'cancelled') return classifyTaskError('cancelled')
+  return null
+})
+
+async function handleRetry() {
+  if (!task.value) return
+  try {
+    uiStore.setLoading(true)
+    const newTaskId = await taskStore.retryTask(task.value.id)
+    uiStore.addToast('已重新提交任务（不含原附件）', 'success')
+    router.push(`/task/${newTaskId}`)
+  } catch (err) {
+    const msg = err instanceof Error ? friendlyErrorMessage(err.message) : friendlyErrorMessage(String(err))
+    uiStore.addToast(msg, 'error')
+  } finally {
+    uiStore.setLoading(false)
+  }
+}
+
+function goBack() {
+  if (window.history.length > 1) {
+    router.back()
+  } else {
+    router.push('/tasks')
+  }
+}
+
+// 二次点击确认删除（避免 window.confirm 在 Tauri Webview 中的兼容性问题）
+const confirmingDelete = ref(false)
+let deleteConfirmTimer: number | undefined
+
+function handleDelete() {
+  if (!task.value) return
+  if (!confirmingDelete.value) {
+    confirmingDelete.value = true
+    deleteConfirmTimer = window.setTimeout(() => {
+      confirmingDelete.value = false
+    }, 3000)
+    return
+  }
+  window.clearTimeout(deleteConfirmTimer)
+  confirmingDelete.value = false
+  taskStore.removeTask(task.value.id)
+  uiStore.addToast('任务记录已删除', 'success')
+  router.push('/tasks')
 }
 
 async function handleResumePolling() {
@@ -178,9 +241,13 @@ watch(() => route.params.id, () => {
 <template>
   <div v-if="task" class="max-w-3xl mx-auto">
     <div class="mb-6">
-      <router-link to="/" class="text-sm text-text-secondary hover:text-text-primary mb-2 inline-block">
-        ← 返回服务市场
-      </router-link>
+      <nav class="mb-2 flex items-center gap-1.5 text-sm text-text-secondary" aria-label="面包屑">
+        <button type="button" class="hover:text-text-primary" @click="goBack">← 返回</button>
+        <span class="text-text-muted">|</span>
+        <router-link to="/tasks" class="hover:text-text-primary">任务列表</router-link>
+        <span class="text-text-muted">/</span>
+        <span class="text-text-primary">任务详情</span>
+      </nav>
       <h1 class="text-2xl font-bold mt-2">任务详情</h1>
     </div>
 
@@ -246,7 +313,13 @@ watch(() => route.params.id, () => {
       <!-- Error -->
       <div v-if="task.errorMessage || task.fetchError" class="mb-6">
         <div class="bg-danger/5 border border-danger/20 rounded-md p-3 text-sm text-danger">
+          <div v-if="classifiedError" class="mb-1">
+            <span class="font-semibold">失败原因：{{ classifiedError.label }}</span>
+          </div>
           {{ task.errorMessage || task.fetchError }}
+          <p v-if="classifiedError" class="mt-2 text-xs text-text-secondary">
+            建议：{{ classifiedError.suggestion }}
+          </p>
         </div>
       </div>
 
@@ -274,11 +347,31 @@ watch(() => route.params.id, () => {
           恢复轮询
         </button>
         <button
+          v-if="canRetry"
+          class="px-4 py-2 bg-accent text-white rounded-md text-sm font-medium hover:bg-accent-hover transition-colors disabled:opacity-50"
+          :disabled="taskStore.isSubmitting"
+          title="使用原任务的描述和输出要求重新提交（不含原附件）"
+          @click="handleRetry"
+        >
+          {{ taskStore.isSubmitting ? '提交中...' : '一键重试' }}
+        </button>
+        <button
           v-if="isTerminal"
-          class="px-4 py-2 bg-accent text-white rounded-md text-sm font-medium hover:bg-accent-hover transition-colors"
+          class="px-4 py-2 border border-border rounded-md text-sm font-medium hover:bg-bg-tertiary transition-colors"
+          title="带着原任务内容前往提交页，可修改后再提交"
           @click="handleResubmit"
         >
-          重新提交
+          修改后重新提交
+        </button>
+        <button
+          v-if="isTerminal"
+          class="px-4 py-2 rounded-md text-sm font-medium transition-colors"
+          :class="confirmingDelete
+            ? 'bg-danger text-white hover:opacity-90'
+            : 'border border-danger/30 text-danger hover:bg-danger/5'"
+          @click="handleDelete"
+        >
+          {{ confirmingDelete ? '确认删除？' : '删除记录' }}
         </button>
       </div>
     </div>
