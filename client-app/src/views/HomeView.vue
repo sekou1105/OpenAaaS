@@ -6,10 +6,11 @@ import { useRouter } from 'vue-router'
 import type { ServiceItem } from '@/stores/server'
 import { httpFetch } from '@/composables/useHttp'
 import { friendlyErrorMessage } from '@/utils/error'
-import { AlertTriangle, Inbox, PlugZap, RefreshCw } from '@lucide/vue'
+import { AlertTriangle, BookOpen, Inbox, PlugZap, RefreshCw } from '@lucide/vue'
 import Skeleton from '@/components/Skeleton.vue'
 import ServiceCard from '@/components/ServiceCard.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
+import { loadState, saveState } from '@/stores/persist'
 
 const serverStore = useServerStore()
 const uiStore = useUiStore()
@@ -33,6 +34,14 @@ const isRefreshing = ref(false)
 const isAuthFailure = computed(
   () => serverStore.isAuthExpired() || (fetchError.value?.includes('401') ?? false),
 )
+
+/** 首次使用引导横幅（dismiss 后持久化，不再显示） */
+const showGuideBanner = ref(!loadState().guideSeen)
+
+function dismissGuideBanner() {
+  showGuideBanner.value = false
+  saveState({ guideSeen: true })
+}
 
 const seedServiceIds = new Set([
   'image-processing',
@@ -207,15 +216,50 @@ onMounted(async () => {
           浏览可用 Agent 服务，查看访问权限、在线状态和实时负载。
         </p>
       </div>
-      <button
-        class="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-bg-card text-text-secondary shadow-sm transition-colors hover:border-accent/35 hover:text-accent"
-        :class="{ 'animate-spin': isRefreshing }"
-        title="刷新"
-        aria-label="刷新服务列表"
-        @click="retryFetch"
-      >
-        <RefreshCw class="h-5 w-5" :stroke-width="2.25" aria-hidden="true" />
-      </button>
+      <div class="flex items-center gap-2">
+        <router-link
+          to="/guide"
+          class="inline-flex h-10 items-center gap-1.5 rounded-lg border border-border bg-bg-card px-3 text-sm font-semibold text-text-secondary shadow-sm transition-colors hover:border-accent/35 hover:text-accent"
+        >
+          <BookOpen class="h-4 w-4" :stroke-width="2.25" aria-hidden="true" />
+          使用教程
+        </router-link>
+        <button
+          class="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-bg-card text-text-secondary shadow-sm transition-colors hover:border-accent/35 hover:text-accent"
+          :class="{ 'animate-spin': isRefreshing }"
+          title="刷新"
+          aria-label="刷新服务列表"
+          @click="retryFetch"
+        >
+          <RefreshCw class="h-5 w-5" :stroke-width="2.25" aria-hidden="true" />
+        </button>
+      </div>
+    </div>
+
+    <!-- First-run guide banner -->
+    <div
+      v-if="showGuideBanner"
+      class="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-accent/25 bg-accent-soft px-4 py-3 shadow-sm"
+    >
+      <p class="text-sm text-text-secondary">
+        <span class="font-semibold text-accent">第一次使用？</span>
+        花三分钟看看使用教程，了解如何添加服务器、登录并提交第一个任务。
+      </p>
+      <div class="flex items-center gap-2">
+        <router-link
+          to="/guide"
+          class="rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-accent-hover"
+          @click="dismissGuideBanner"
+        >
+          查看教程
+        </router-link>
+        <button
+          class="rounded-md border border-border px-3 py-1.5 text-xs font-semibold text-text-secondary transition-colors hover:bg-bg-tertiary"
+          @click="dismissGuideBanner"
+        >
+          不再提示
+        </button>
+      </div>
     </div>
 
     <!-- Empty state: no servers -->

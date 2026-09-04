@@ -153,16 +153,23 @@ onMounted(async () => {
             />
           </div>
           <div>
-            <label class="block text-sm font-medium text-text-secondary mb-1">任务描述 (task_prompt)</label>
+            <label class="block text-sm font-medium text-text-secondary mb-1">
+              任务描述
+              <code class="ml-1 rounded bg-bg-inset border border-border px-1.5 py-0.5 text-xs font-normal text-accent">task_prompt</code>
+            </label>
             <textarea
               v-model="taskPrompt"
               rows="5"
               class="w-full px-3 py-2 bg-bg-primary border border-border rounded-md text-sm focus:border-accent focus:outline-none resize-y"
               placeholder="描述您需要执行的任务..."
             />
+            <p class="text-xs text-text-muted mt-1">不同服务的具体要求可查看服务详情页的「使用说明」</p>
           </div>
           <div>
-            <label class="block text-sm font-medium text-text-secondary mb-1">输出要求 (output_prompt) - 可选</label>
+            <label class="block text-sm font-medium text-text-secondary mb-1">
+              输出要求（可选）
+              <code class="ml-1 rounded bg-bg-inset border border-border px-1.5 py-0.5 text-xs font-normal text-accent">output_prompt</code>
+            </label>
             <textarea
               v-model="outputPrompt"
               rows="3"

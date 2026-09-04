@@ -256,4 +256,29 @@ describe('useTaskStore', () => {
     expect(store.clearFinishedTasks()).toBe(0)
     expect(store.tasks).toHaveLength(1)
   })
+
+  it('should estimate duration from same-service completed history', () => {
+    const store = useTaskStore()
+    const base = Date.now()
+    const mkCompleted = (id: string, serviceId: string, durationSec: number): Task =>
+      createSampleTask({
+        id,
+        serviceId,
+        status: 'completed',
+        createdAt: new Date(base - 86400000).toISOString(),
+        startedAt: new Date(base - 86400000).toISOString(),
+        completedAt: new Date(base - 86400000 + durationSec * 1000).toISOString(),
+      })
+    store.tasks = [
+      mkCompleted('t1', 'svc1', 600),
+      mkCompleted('t2', 'svc1', 1200),
+      mkCompleted('t3', 'svc2', 9999),
+      createSampleTask({ id: 't4', serviceId: 'svc1', status: 'running' }),
+    ]
+
+    const est = store.estimateServiceDuration('svc1')
+    expect(est?.sampleCount).toBe(2)
+    expect(est?.avgSeconds).toBe(900)
+    expect(store.estimateServiceDuration('svc-none')).toBeNull()
+  })
 })

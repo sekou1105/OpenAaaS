@@ -5,6 +5,7 @@ export interface PersistedState {
   defaultAlias?: string
   services?: Record<string, unknown>
   tasks?: unknown[]
+  guideSeen?: boolean
 }
 
 export function loadState(): PersistedState {

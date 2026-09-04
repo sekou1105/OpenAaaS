@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { httpFetch, httpFetchWithRedirect, parseServerError, uploadWithFiles } from '@/composables/useHttp'
 import { friendlyErrorMessage } from '@/utils/error'
 import { loadState, saveState } from './persist'
+import { estimateDurations, type DurationEstimate } from '@/utils/estimate'
 
 export interface TaskFile {
   id: string
@@ -423,6 +424,24 @@ export const useTaskStore = defineStore('task', () => {
     startPolling(taskId)
   }
 
+  /**
+   * 估算某服务的任务耗时：基于本地历史已完成任务的实际耗时（均值/P90）。
+   * 样本不足（无已完成历史）时返回 null，视图层自行兜底。
+   */
+  function estimateServiceDuration(serviceId: string): DurationEstimate | null {
+    const samples: number[] = []
+    for (const t of tasks.value) {
+      if (t.serviceId !== serviceId || t.status !== 'completed') continue
+      const startIso = t.startedAt || t.createdAt
+      if (!startIso || !t.completedAt) continue
+      const start = new Date(startIso).getTime()
+      const end = new Date(t.completedAt).getTime()
+      if (isNaN(start) || isNaN(end) || end <= start) continue
+      samples.push((end - start) / 1000)
+    }
+    return estimateDurations(samples)
+  }
+
   return {
     tasks,
     activeTasks,
@@ -441,5 +460,6 @@ export const useTaskStore = defineStore('task', () => {
     updateTask,
     resumePolling,
     resumePollingForTask,
+    estimateServiceDuration,
   }
 })

@@ -6,6 +6,7 @@ import { httpFetch } from '@/composables/useHttp'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import Skeleton from '@/components/Skeleton.vue'
+import { formatUsageMarkdown } from '@/utils/usageFormat'
 
 const route = useRoute()
 const serverStore = useServerStore()
@@ -30,7 +31,7 @@ const load = ref<{
 const usage = ref<string | null | undefined>(undefined)
 const usageHtml = computed(() => {
   if (!usage.value) return ''
-  const html = marked.parse(usage.value, { async: false, breaks: true }) as string
+  const html = marked.parse(formatUsageMarkdown(usage.value), { async: false, breaks: true }) as string
   return DOMPurify.sanitize(html)
 })
 
@@ -148,7 +149,7 @@ watch(() => route.params.id, () => {
 
       <div v-if="usage !== undefined && usage !== null" class="mt-4 p-3 bg-bg-primary border border-border rounded-md">
         <p class="text-sm font-medium mb-1">使用说明</p>
-        <div class="text-sm leading-relaxed prose max-w-none" v-html="usageHtml" />
+        <div class="text-sm leading-relaxed prose prose-sm max-w-none prose-table:border prose-th:bg-bg-secondary prose-th:px-3 prose-th:py-1.5 prose-td:px-3 prose-td:py-1.5" v-html="usageHtml" />
       </div>
       <div v-else-if="usage === null" class="mt-4 p-3 bg-bg-primary border border-border rounded-md">
         <p class="text-sm font-medium mb-1">使用说明</p>

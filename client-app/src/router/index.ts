@@ -5,6 +5,7 @@ import SubmitTaskView from '@/views/SubmitTaskView.vue'
 import TaskDetailView from '@/views/TaskDetailView.vue'
 import TasksView from '@/views/TasksView.vue'
 import SettingsView from '@/views/SettingsView.vue'
+import GuideView from '@/views/GuideView.vue'
 
 const router = createRouter({
   history: createWebHashHistory(),
@@ -44,6 +45,12 @@ const router = createRouter({
       name: 'settings',
       component: SettingsView,
       meta: { title: '设置' },
+    },
+    {
+      path: '/guide',
+      name: 'guide',
+      component: GuideView,
+      meta: { title: '使用教程' },
     },
   ],
 })

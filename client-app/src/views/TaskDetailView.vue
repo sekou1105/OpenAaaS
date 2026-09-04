@@ -9,6 +9,8 @@ import { useUiStore } from '@/stores/ui'
 import { useServerStore } from '@/stores/server'
 import { friendlyErrorMessage } from '@/utils/error'
 import { classifyTaskError } from '@/utils/errorClassify'
+import { formatSeconds } from '@/utils/estimate'
+import { filePurpose } from '@/utils/filePurpose'
 import { httpFetch } from '@/composables/useHttp'
 import { save } from '@tauri-apps/plugin-dialog'
 import { writeFile } from '@tauri-apps/plugin-fs'
@@ -74,6 +76,26 @@ const isTerminal = computed(() => {
 const canCancel = computed(() => {
   const s = task.value?.status
   return s === 'pending' || s === 'running'
+})
+
+/** 进行中/排队中任务的预计耗时（同服务历史已完成任务的均值） */
+const durationEstimate = computed(() => {
+  const t = task.value
+  if (!t || isTerminal.value) return null
+  return taskStore.estimateServiceDuration(t.serviceId)
+})
+
+const estimateText = computed(() => {
+  const est = durationEstimate.value
+  if (!est) return ''
+  let text = `预计总耗时 ~${formatSeconds(est.avgSeconds)}（基于 ${est.sampleCount} 条历史）`
+  if (task.value?.status === 'running' && task.value.startedAt) {
+    const elapsed = (Date.now() - new Date(task.value.startedAt).getTime()) / 1000
+    const remaining = est.avgSeconds - elapsed
+    if (remaining > 0) text += `，预计剩余 ~${formatSeconds(remaining)}`
+    else text += '，已超过历史均值，请耐心等待'
+  }
+  return text
 })
 
 async function handleCancel() {
@@ -273,6 +295,7 @@ watch(() => route.params.id, () => {
         <span v-if="task.startedAt">开始: {{ formattedStartedAt }}</span>
         <span v-if="task.completedAt">完成: {{ formattedCompletedAt }}</span>
         <span>耗时: {{ duration }}</span>
+        <span v-if="estimateText" class="text-accent">{{ estimateText }}</span>
       </div>
 
       <!-- Result area -->
@@ -294,7 +317,10 @@ watch(() => route.params.id, () => {
             :key="file.id"
             class="flex items-center gap-3 bg-bg-primary border border-border rounded-md px-3 py-2"
           >
-            <span class="text-sm flex-1">{{ file.filename }}</span>
+            <div class="flex-1 min-w-0">
+              <p class="text-sm truncate">{{ file.filename }}</p>
+              <p class="text-xs text-text-muted mt-0.5">用途：{{ filePurpose(file.filename, file.mimeType) }}</p>
+            </div>
             <span class="text-xs text-text-muted">{{ (file.sizeBytes / 1024).toFixed(1) }} KB</span>
             <button
               class="px-2 py-1 text-xs bg-accent text-white rounded hover:bg-accent-hover transition-colors"

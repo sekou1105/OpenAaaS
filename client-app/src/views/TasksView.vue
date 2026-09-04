@@ -14,6 +14,7 @@ import {
 } from '@lucide/vue'
 import { useTaskStore, type Task, type TaskStatus } from '@/stores/task'
 import { useUiStore } from '@/stores/ui'
+import { formatSeconds } from '@/utils/estimate'
 import StatusBadge from '@/components/StatusBadge.vue'
 
 type FilterKey = 'all' | 'queued' | 'running' | 'completed' | 'failed'
@@ -243,6 +244,16 @@ function openTask(task: DisplayTask) {
   router.push(`/task/${task.id}`)
 }
 
+/** 进行中/排队中任务的预计耗时提示（基于同服务历史样本） */
+function estimateText(task: DisplayTask): string {
+  if (task.isDemo) return ''
+  const state = displayState(task.status)
+  if (state !== 'queued' && state !== 'running') return ''
+  const est = taskStore.estimateServiceDuration(task.serviceId)
+  if (!est) return ''
+  return `预计总耗时 ~${formatSeconds(est.avgSeconds)}（${est.sampleCount} 条历史）`
+}
+
 // 清空历史：仅清除已结束任务，进行中/排队中保留；二次点击确认
 const finishedCount = computed(
   () => taskStore.tasks.filter((t) => ['completed', 'failed', 'cancelled'].includes(t.status)).length,
@@ -450,7 +461,8 @@ function handleClearHistory() {
           class="mt-3 flex items-center gap-2 rounded-lg border border-accent/15 bg-accent-soft px-3 py-2 text-xs font-semibold text-accent"
         >
           <Clock class="h-4 w-4 flex-shrink-0" aria-hidden="true" />
-          {{ task.isPolling ? '正在同步任务状态' : '等待下一次状态同步' }}
+          <span>{{ task.isPolling ? '正在同步任务状态' : '等待下一次状态同步' }}</span>
+          <span v-if="estimateText(task)" class="text-text-secondary">· {{ estimateText(task) }}</span>
         </div>
       </button>
     </div>
