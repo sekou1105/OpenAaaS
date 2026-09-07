@@ -257,6 +257,43 @@ describe('useTaskStore', () => {
     expect(store.tasks).toHaveLength(1)
   })
 
+  it('should submit follow-up task with session_id and store it', async () => {
+    const store = useTaskStore()
+    const { loadState } = await import('@/stores/persist')
+    vi.mocked(loadState).mockReturnValue({
+      servers: [
+        { alias: 's1', serverUrl: 'http://s1/', apiKey: 'ak' },
+      ],
+    })
+
+    mockedUploadWithFiles.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        id: 'follow-task',
+        status: 'pending',
+        created_at: '2024-01-01T00:00:00Z',
+        session_id: 'sess-1',
+      }),
+    } as Response)
+
+    const taskId = await store.submitTask({
+      serverAlias: 's1',
+      serviceId: 'svc1',
+      serviceName: 'Svc',
+      title: '（追问）T',
+      taskPrompt: 'p',
+      outputPrompt: 'o',
+      sessionId: 'sess-1',
+    })
+
+    expect(taskId).toBe('follow-task')
+    // 提交时 multipart 字段携带 session_id
+    const fields = mockedUploadWithFiles.mock.calls[0][1] as Record<string, string>
+    expect(fields.session_id).toBe('sess-1')
+    // 任务本地持久化 sessionId（以服务端返回为准）
+    expect(store.getTask('follow-task')?.sessionId).toBe('sess-1')
+  })
+
   it('should estimate duration from same-service completed history', () => {
     const store = useTaskStore()
     const base = Date.now()

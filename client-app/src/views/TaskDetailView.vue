@@ -159,6 +159,41 @@ function goBack() {
   }
 }
 
+/** 已完成任务可基于结果继续追问 */
+const canFollowUp = computed(() => task.value?.status === 'completed')
+
+/** 同一会话的任务链（本地过滤，按创建时间排序） */
+const sessionChain = computed(() => {
+  const t = task.value
+  if (!t?.sessionId) return []
+  return taskStore.tasks
+    .filter((x) => x.sessionId === t.sessionId)
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+})
+
+function handleFollowUp() {
+  const t = task.value
+  if (!t) return
+  const excerpt = (t.result || '').slice(0, 500)
+  const prompt = [
+    '【追问背景】',
+    `原任务：${t.taskPrompt}`,
+    excerpt ? `前次结果摘要：${excerpt}${(t.result || '').length > 500 ? '……' : ''}` : '',
+    '',
+    '【我的新问题】',
+    '',
+  ].join('\n')
+  router.push({
+    path: `/submit/${t.serviceId}`,
+    query: {
+      title: `（追问）${t.title}`,
+      taskPrompt: prompt,
+      outputPrompt: t.outputPrompt,
+      ...(t.sessionId ? { sessionId: t.sessionId } : {}),
+    },
+  })
+}
+
 // 二次点击确认删除（避免 window.confirm 在 Tauri Webview 中的兼容性问题）
 const confirmingDelete = ref(false)
 let deleteConfirmTimer: number | undefined
@@ -356,6 +391,24 @@ watch(() => route.params.id, () => {
         </div>
       </div>
 
+      <!-- 会话任务链 -->
+      <div v-if="sessionChain.length > 1" class="mb-6">
+        <h3 class="text-sm font-semibold uppercase tracking-wide text-text-secondary mb-2">会话任务链</h3>
+        <div class="flex flex-wrap gap-2">
+          <router-link
+            v-for="(s, i) in sessionChain"
+            :key="s.id"
+            :to="`/task/${s.id}`"
+            class="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold transition-colors"
+            :class="s.id === task.id
+              ? 'border-accent bg-accent text-white'
+              : 'border-border bg-bg-primary text-text-secondary hover:border-accent/40 hover:text-accent'"
+          >
+            第{{ i + 1 }}轮 · {{ statusLabelMap[s.status] || s.status }}
+          </router-link>
+        </div>
+      </div>
+
       <!-- Actions -->
       <div class="flex gap-3">
         <button
@@ -371,6 +424,14 @@ watch(() => route.params.id, () => {
           @click="handleResumePolling"
         >
           恢复轮询
+        </button>
+        <button
+          v-if="canFollowUp"
+          class="px-4 py-2 bg-accent text-white rounded-md text-sm font-medium hover:bg-accent-hover transition-colors"
+          title="基于本次结果继续提问，新任务将与本任务同一会话提交"
+          @click="handleFollowUp"
+        >
+          继续追问
         </button>
         <button
           v-if="canRetry"

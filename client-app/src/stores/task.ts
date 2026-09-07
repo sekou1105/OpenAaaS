@@ -32,6 +32,8 @@ export interface Task {
   result?: string
   files: TaskFile[]
   errorMessage?: string
+  /** 会话 ID：追问任务携带同一 sessionId，服务端透传给 Agent 复用上下文 */
+  sessionId?: string
   isPolling: boolean
   pollFailCount?: number
   resultFetched?: boolean
@@ -101,6 +103,7 @@ export const useTaskStore = defineStore('task', () => {
     taskPrompt: string
     outputPrompt: string
     files?: File[]
+    sessionId?: string
   }): Promise<string> {
     isSubmitting.value = true
     submitError.value = null
@@ -113,13 +116,18 @@ export const useTaskStore = defineStore('task', () => {
       const baseUrl = server.serverUrl.replace(/\/$/, '')
       const url = `${baseUrl}/api/v1/client/tasks`
 
+      const fields: Record<string, string> = {
+        service_id: params.serviceId,
+        task_prompt: params.taskPrompt,
+        output_prompt: params.outputPrompt,
+      }
+      if (params.sessionId) {
+        fields.session_id = params.sessionId
+      }
+
       const res = await uploadWithFiles(
         url,
-        {
-          service_id: params.serviceId,
-          task_prompt: params.taskPrompt,
-          output_prompt: params.outputPrompt,
-        },
+        fields,
         params.files || [],
         { Authorization: `Bearer ${server.apiKey}` },
       )
@@ -146,6 +154,7 @@ export const useTaskStore = defineStore('task', () => {
         completedAt: data.completed_at,
         files: [],
         errorMessage: data.error_message,
+        sessionId: data.session_id || params.sessionId,
         isPolling: true,
         pollFailCount: 0,
       }
@@ -212,6 +221,7 @@ export const useTaskStore = defineStore('task', () => {
       }
       if (data.started_at) patch.startedAt = data.started_at
       if (data.completed_at) patch.completedAt = data.completed_at
+      if (data.session_id && !task.sessionId) patch.sessionId = data.session_id
       patch.errorMessage = data.error_message ?? undefined
 
       if (data.output) {

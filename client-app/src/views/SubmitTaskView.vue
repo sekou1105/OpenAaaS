@@ -28,6 +28,8 @@ function queryString(v: unknown): string {
 const title = ref(queryString(route.query.title))
 const taskPrompt = ref(queryString(route.query.taskPrompt))
 const outputPrompt = ref(queryString(route.query.outputPrompt))
+/** 追问任务：携带上一任务的 sessionId，服务端透传给 Agent 以复用上下文 */
+const sessionId = queryString(route.query.sessionId) || undefined
 const files = ref<FileList | null>(null)
 const step = ref(1)
 const dragOver = ref(false)
@@ -60,6 +62,7 @@ async function submit() {
       taskPrompt: taskPrompt.value,
       outputPrompt: outputPrompt.value.trim() || '将结果写入response.md',
       files: files.value ? Array.from(files.value) : undefined,
+      sessionId,
     })
     uiStore.addToast('任务提交成功', 'success')
     router.push(`/task/${taskId}`)
@@ -137,6 +140,12 @@ onMounted(async () => {
 
       <!-- Step 1: Fill Content -->
       <div v-else-if="step === 1">
+        <div
+          v-if="sessionId"
+          class="mb-4 rounded-md border border-accent/25 bg-accent-soft px-3 py-2 text-xs font-semibold text-accent"
+        >
+          追问模式：本任务将与上一任务同一会话提交，支持会话的服务可复用前次上下文。
+        </div>
         <div v-if="service" class="mb-4 p-3 bg-bg-primary border border-border rounded-md">
           <p class="font-medium text-sm">{{ service.name }}</p>
           <p class="text-xs text-text-secondary mt-1">{{ service.description || '暂无描述' }}</p>
