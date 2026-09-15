@@ -9,7 +9,7 @@ const uiStore = useUiStore()
 
 const showAddForm = ref(false)
 const newAlias = ref('')
-const newUrl = ref('https://openaaastest.buaa.edu.cn')
+const newUrl = ref('https://openaaas.buaa.edu.cn')
 const registerAlias = ref('')
 const registerName = ref('')
 const registerPassword = ref('')
@@ -126,7 +126,7 @@ function closeRegister() {
               v-model="newUrl"
               type="text"
               class="w-full px-3 py-2 bg-bg-secondary border border-border rounded-md text-sm focus:border-accent focus:outline-none"
-              placeholder="https://openaaastest.buaa.edu.cn"
+              placeholder="https://openaaas.buaa.edu.cn"
             />
             <p class="text-xs text-text-muted mt-1">必须以 http:// 或 https:// 开头</p>
           </div>

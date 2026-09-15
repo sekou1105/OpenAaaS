@@ -23,7 +23,7 @@ import { ArrowLeft } from '@lucide/vue'
             <p class="font-semibold text-sm">添加服务器</p>
             <p class="text-sm text-text-secondary mt-1">
               打开「设置」→「添加服务器」，填写别名和服务器地址。
-              服务器地址：<code class="rounded bg-bg-inset border border-border px-1.5 py-0.5 text-xs text-accent">http://10.64.198.139</code>
+              服务器地址：<code class="rounded bg-bg-inset border border-border px-1.5 py-0.5 text-xs text-accent">https://openaaas.buaa.edu.cn</code>
             </p>
           </div>
         </li>
