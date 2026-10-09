@@ -1,15 +1,18 @@
 <script setup lang="ts">
 import { useRoute } from 'vue-router'
 import { computed, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useServerStore } from '@/stores/server'
 import { httpFetch } from '@/composables/useHttp'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import Skeleton from '@/components/Skeleton.vue'
 import { formatUsageMarkdown } from '@/utils/usageFormat'
+import { localizedServiceName, localizedServiceDescription, localizedServiceUsage } from '@/i18n/serviceEn'
 
 const route = useRoute()
 const serverStore = useServerStore()
+const { t } = useI18n()
 
 const serviceId = computed(() => String(route.params.id))
 const service = computed(() => {
@@ -29,9 +32,12 @@ const load = ref<{
 } | null | undefined>(undefined)
 
 const usage = ref<string | null | undefined>(undefined)
+const displayName = computed(() => service.value ? localizedServiceName(service.value.id, service.value.name) : '')
+const displayDescription = computed(() => service.value ? localizedServiceDescription(service.value.id, service.value.description ?? '') : '')
 const usageHtml = computed(() => {
   if (!usage.value) return ''
-  const html = marked.parse(formatUsageMarkdown(usage.value), { async: false, breaks: true }) as string
+  const localized = localizedServiceUsage(serviceId.value, usage.value)
+  const html = marked.parse(formatUsageMarkdown(localized), { async: false, breaks: true }) as string
   return DOMPurify.sanitize(html)
 })
 
@@ -96,14 +102,14 @@ watch(() => route.params.id, () => {
   <div class="max-w-3xl mx-auto">
     <div class="mb-6">
       <router-link to="/" class="text-sm text-text-secondary hover:text-text-primary mb-2 inline-block">
-        ← 返回服务市场
+        {{ t('serviceDetail.back') }}
       </router-link>
-      <h1 class="text-2xl font-bold mt-2">服务详情</h1>
+      <h1 class="text-2xl font-bold mt-2">{{ t('serviceDetail.title') }}</h1>
     </div>
 
     <div v-if="service" class="bg-bg-secondary border border-border rounded-lg p-6">
       <div class="flex items-start justify-between mb-4">
-        <h2 class="text-xl font-semibold">{{ service.name }}</h2>
+        <h2 class="text-xl font-semibold">{{ displayName }}</h2>
         <span
           class="text-[11px] font-semibold px-2 py-1 rounded-full uppercase"
           :class="{
@@ -115,7 +121,7 @@ watch(() => route.params.id, () => {
           {{ service.agentStatus }}
         </span>
       </div>
-      <p class="text-text-secondary mb-4">{{ service.description || '暂无描述' }}</p>
+      <p class="text-text-secondary mb-4">{{ displayDescription || t('serviceDetail.noDescription') }}</p>
 
       <div class="flex items-center gap-3 mb-6">
         <span
@@ -124,39 +130,39 @@ watch(() => route.params.id, () => {
             ? 'border-success/30 text-success'
             : 'border-warning/30 text-warning'"
         >
-          {{ service.accessType === 'public' ? '公开访问' : '需要授权' }}
+          {{ service.accessType === 'public' ? t('serviceDetail.publicAccess') : t('serviceDetail.authRequired') }}
         </span>
       </div>
 
       <div v-if="load !== undefined && load !== null" class="mt-4 p-3 bg-bg-primary border border-border rounded-md">
-        <p class="text-sm font-medium mb-1">负载信息</p>
+        <p class="text-sm font-medium mb-1">{{ t('serviceDetail.loadInfo') }}</p>
         <div class="flex flex-wrap gap-3 text-xs text-text-muted">
-          <span v-if="load.capacity != null">容量: {{ load.capacity }}</span>
-          <span v-if="load.current_load != null">当前负载: {{ load.current_load }}</span>
-          <span v-if="load.available_slots != null">可用槽位: {{ load.available_slots }}</span>
-          <span v-if="load.pending_tasks != null">排队任务: {{ load.pending_tasks }}</span>
-          <span v-if="load.running_tasks != null">运行中任务: {{ load.running_tasks }}</span>
+          <span v-if="load.capacity != null">{{ t('serviceDetail.capacity') }} {{ load.capacity }}</span>
+          <span v-if="load.current_load != null">{{ t('serviceDetail.currentLoad') }} {{ load.current_load }}</span>
+          <span v-if="load.available_slots != null">{{ t('serviceDetail.availableSlots') }} {{ load.available_slots }}</span>
+          <span v-if="load.pending_tasks != null">{{ t('serviceDetail.pendingTasks') }} {{ load.pending_tasks }}</span>
+          <span v-if="load.running_tasks != null">{{ t('serviceDetail.runningTasks') }} {{ load.running_tasks }}</span>
         </div>
       </div>
       <div v-else-if="load === null" class="mt-4 p-3 bg-bg-primary border border-border rounded-md">
-        <p class="text-sm font-medium mb-1">负载信息</p>
-        <p class="text-xs text-danger">获取失败</p>
+        <p class="text-sm font-medium mb-1">{{ t('serviceDetail.loadInfo') }}</p>
+        <p class="text-xs text-danger">{{ t('serviceDetail.fetchFailed') }}</p>
       </div>
       <div v-else class="mt-4 p-3 bg-bg-primary border border-border rounded-md space-y-2">
-        <p class="text-sm font-medium mb-1">负载信息</p>
+        <p class="text-sm font-medium mb-1">{{ t('serviceDetail.loadInfo') }}</p>
         <Skeleton :rows="3" height="14px" />
       </div>
 
       <div v-if="usage !== undefined && usage !== null" class="mt-4 p-3 bg-bg-primary border border-border rounded-md">
-        <p class="text-sm font-medium mb-1">使用说明</p>
+        <p class="text-sm font-medium mb-1">{{ t('serviceDetail.usage') }}</p>
         <div class="text-sm leading-relaxed prose prose-sm max-w-none prose-table:border prose-th:bg-bg-secondary prose-th:px-3 prose-th:py-1.5 prose-td:px-3 prose-td:py-1.5" v-html="usageHtml" />
       </div>
       <div v-else-if="usage === null" class="mt-4 p-3 bg-bg-primary border border-border rounded-md">
-        <p class="text-sm font-medium mb-1">使用说明</p>
-        <p class="text-xs text-danger">获取失败</p>
+        <p class="text-sm font-medium mb-1">{{ t('serviceDetail.usage') }}</p>
+        <p class="text-xs text-danger">{{ t('serviceDetail.fetchFailed') }}</p>
       </div>
       <div v-else class="mt-4 p-3 bg-bg-primary border border-border rounded-md space-y-2">
-        <p class="text-sm font-medium mb-1">使用说明</p>
+        <p class="text-sm font-medium mb-1">{{ t('serviceDetail.usage') }}</p>
         <Skeleton :rows="8" height="14px" />
       </div>
 
@@ -165,13 +171,13 @@ watch(() => route.params.id, () => {
         :to="`/submit/${service.id}`"
         class="inline-flex items-center px-4 py-2 bg-accent text-white rounded-md text-sm font-medium hover:bg-accent-hover transition-colors mt-4"
       >
-        提交任务 →
+        {{ t('serviceDetail.submitTask') }}
       </router-link>
-      <span v-else class="text-sm text-danger mt-4 inline-block">您没有权限使用此服务</span>
+      <span v-else class="text-sm text-danger mt-4 inline-block">{{ t('serviceDetail.noPermission') }}</span>
     </div>
 
     <div v-else class="text-text-muted">
-      服务信息未找到
+      {{ t('serviceDetail.notFound') }}
     </div>
   </div>
 </template>

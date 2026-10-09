@@ -1,16 +1,19 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useServerStore } from '@/stores/server'
 import { useTaskStore } from '@/stores/task'
 import { useUiStore } from '@/stores/ui'
 import { friendlyErrorMessage } from '@/utils/error'
+import { localizedServiceName, localizedServiceDescription } from '@/i18n/serviceEn'
 
 const route = useRoute()
 const router = useRouter()
 const serverStore = useServerStore()
 const taskStore = useTaskStore()
 const uiStore = useUiStore()
+const { t } = useI18n()
 
 const serviceId = computed(() => String(route.params.serviceId))
 const service = computed(() => {
@@ -20,6 +23,10 @@ const service = computed(() => {
   }
   return undefined
 })
+
+/** 展示用名称/描述（英文环境命中映射时显示英文）；提交给服务端的仍为原始数据 */
+const displayServiceName = computed(() => service.value ? localizedServiceName(service.value.id, service.value.name) : '')
+const displayServiceDesc = computed(() => service.value ? localizedServiceDescription(service.value.id, service.value.description ?? '') : '')
 
 function queryString(v: unknown): string {
   return typeof v === 'string' ? v : ''
@@ -45,11 +52,11 @@ function handleDrop(event: DragEvent) {
 
 async function submit() {
   if (!service.value) {
-    uiStore.addToast('服务信息不存在', 'error')
+    uiStore.addToast(t('submit.toastServiceMissing'), 'error')
     return
   }
   if (!serverStore.defaultServer) {
-    uiStore.addToast('未设置默认服务器', 'error')
+    uiStore.addToast(t('submit.toastNoDefaultServer'), 'error')
     return
   }
   try {
@@ -58,13 +65,14 @@ async function submit() {
       serverAlias: serverStore.defaultServer.alias,
       serviceId: serviceId.value,
       serviceName: service.value.name,
+      // 标题与默认输出要求属于提交给服务端的业务数据，保持原文不做国际化
       title: title.value || '未命名任务',
       taskPrompt: taskPrompt.value,
       outputPrompt: outputPrompt.value.trim() || '将结果写入response.md',
       files: files.value ? Array.from(files.value) : undefined,
       sessionId,
     })
-    uiStore.addToast('任务提交成功', 'success')
+    uiStore.addToast(t('submit.toastSubmitSuccess'), 'success')
     router.push(`/task/${taskId}`)
   } catch (err) {
     const msg = err instanceof Error ? friendlyErrorMessage(err.message) : friendlyErrorMessage(String(err))
@@ -77,7 +85,7 @@ async function submit() {
 function nextStep() {
   if (step.value === 1) {
     if (!taskPrompt.value.trim()) {
-      uiStore.addToast('任务描述不能为空', 'error')
+      uiStore.addToast(t('submit.toastPromptRequired'), 'error')
       return
     }
   }
@@ -95,7 +103,7 @@ onMounted(async () => {
     try {
       await serverStore.fetchServices()
       if (!service.value) {
-        serviceLoadError.value = '未找到该服务，可能已被删除或您没有访问权限'
+        serviceLoadError.value = t('submit.serviceNotFound')
       }
     } catch (err) {
       const msg = err instanceof Error ? friendlyErrorMessage(err.message) : friendlyErrorMessage(String(err))
@@ -114,9 +122,9 @@ onMounted(async () => {
         :to="`/service/${serviceId}`"
         class="text-sm text-text-secondary hover:text-text-primary mb-2 inline-block"
       >
-        ← 返回服务详情
+        {{ t('submit.back') }}
       </router-link>
-      <h1 class="text-2xl font-bold mt-2">提交任务</h1>
+      <h1 class="text-2xl font-bold mt-2">{{ t('submit.title') }}</h1>
     </div>
 
     <!-- Step indicator -->
@@ -132,7 +140,7 @@ onMounted(async () => {
     <div class="bg-bg-secondary border border-border rounded-lg p-6">
       <!-- Loading state -->
       <div v-if="isLoadingService" class="py-8 text-center text-text-secondary text-sm">
-        加载服务信息中...
+        {{ t('submit.loadingService') }}
       </div>
       <div v-else-if="serviceLoadError" class="py-8 text-center text-danger text-sm">
         {{ serviceLoadError }}
@@ -144,46 +152,46 @@ onMounted(async () => {
           v-if="sessionId"
           class="mb-4 rounded-md border border-accent/25 bg-accent-soft px-3 py-2 text-xs font-semibold text-accent"
         >
-          追问模式：本任务将与上一任务同一会话提交，支持会话的服务可复用前次上下文。
+          {{ t('submit.followUpBanner') }}
         </div>
         <div v-if="service" class="mb-4 p-3 bg-bg-primary border border-border rounded-md">
-          <p class="font-medium text-sm">{{ service.name }}</p>
-          <p class="text-xs text-text-secondary mt-1">{{ service.description || '暂无描述' }}</p>
+          <p class="font-medium text-sm">{{ displayServiceName }}</p>
+          <p class="text-xs text-text-secondary mt-1">{{ displayServiceDesc || t('submit.noDescription') }}</p>
         </div>
-        <h2 class="text-lg font-semibold mb-4">1. 填写内容</h2>
+        <h2 class="text-lg font-semibold mb-4">{{ t('submit.step1') }}</h2>
         <div class="space-y-4">
           <div>
-            <label class="block text-sm font-medium text-text-secondary mb-1">任务标题</label>
+            <label class="block text-sm font-medium text-text-secondary mb-1">{{ t('submit.taskTitle') }}</label>
             <input
               v-model="title"
               type="text"
               class="w-full px-3 py-2 bg-bg-primary border border-border rounded-md text-sm focus:border-accent focus:outline-none"
-              placeholder="输入任务标题"
+              :placeholder="t('submit.taskTitlePlaceholder')"
             />
           </div>
           <div>
             <label class="block text-sm font-medium text-text-secondary mb-1">
-              任务描述
+              {{ t('submit.taskPrompt') }}
               <code class="ml-1 rounded bg-bg-inset border border-border px-1.5 py-0.5 text-xs font-normal text-accent">task_prompt</code>
             </label>
             <textarea
               v-model="taskPrompt"
               rows="5"
               class="w-full px-3 py-2 bg-bg-primary border border-border rounded-md text-sm focus:border-accent focus:outline-none resize-y"
-              placeholder="描述您需要执行的任务..."
+              :placeholder="t('submit.taskPromptPlaceholder')"
             />
-            <p class="text-xs text-text-muted mt-1">不同服务的具体要求可查看服务详情页的「使用说明」</p>
+            <p class="text-xs text-text-muted mt-1">{{ t('submit.taskPromptHint') }}</p>
           </div>
           <div>
             <label class="block text-sm font-medium text-text-secondary mb-1">
-              输出要求（可选）
+              {{ t('submit.outputPrompt') }}
               <code class="ml-1 rounded bg-bg-inset border border-border px-1.5 py-0.5 text-xs font-normal text-accent">output_prompt</code>
             </label>
             <textarea
               v-model="outputPrompt"
               rows="3"
               class="w-full px-3 py-2 bg-bg-primary border border-border rounded-md text-sm focus:border-accent focus:outline-none resize-y"
-              placeholder="描述您期望的输出格式，留空则默认：将结果写入response.md"
+              :placeholder="t('submit.outputPromptPlaceholder')"
             />
           </div>
           <div
@@ -194,7 +202,7 @@ onMounted(async () => {
             @dragleave.prevent="dragOver = false"
             @drop.prevent="handleDrop"
           >
-            <label class="block text-sm font-medium text-text-secondary mb-2">附件 (可选)</label>
+            <label class="block text-sm font-medium text-text-secondary mb-2">{{ t('submit.attachments') }}</label>
             <input
               id="file-input"
               type="file"
@@ -203,11 +211,11 @@ onMounted(async () => {
               @change="files = ($event.target as HTMLInputElement).files"
             />
             <label for="file-input" class="cursor-pointer text-sm text-accent hover:underline">
-              点击选择文件
+              {{ t('submit.chooseFiles') }}
             </label>
-            <p class="text-xs text-text-muted mt-1">或将文件拖拽到此处</p>
+            <p class="text-xs text-text-muted mt-1">{{ t('submit.dragHint') }}</p>
             <p v-if="files && files.length > 0" class="text-xs text-text-secondary mt-2">
-              已选择 {{ files.length }} 个文件
+              {{ t('submit.filesSelected', { n: files.length }) }}
             </p>
           </div>
         </div>
@@ -216,7 +224,7 @@ onMounted(async () => {
             class="px-4 py-2 bg-accent text-white rounded-md text-sm font-medium hover:bg-accent-hover transition-colors"
             @click="nextStep"
           >
-            下一步
+            {{ t('submit.next') }}
           </button>
         </div>
       </div>
@@ -224,22 +232,22 @@ onMounted(async () => {
       <!-- Step 2: Confirm -->
       <div v-if="step === 2">
         <div v-if="service" class="mb-4 p-3 bg-bg-primary border border-border rounded-md">
-          <p class="font-medium text-sm">{{ service.name }}</p>
-          <p class="text-xs text-text-secondary mt-1">{{ service.description || '暂无描述' }}</p>
+          <p class="font-medium text-sm">{{ displayServiceName }}</p>
+          <p class="text-xs text-text-secondary mt-1">{{ displayServiceDesc || t('submit.noDescription') }}</p>
         </div>
-        <h2 class="text-lg font-semibold mb-4">2. 确认提交</h2>
+        <h2 class="text-lg font-semibold mb-4">{{ t('submit.step2') }}</h2>
         <div class="space-y-2 text-sm mb-6">
           <div class="flex">
-            <span class="text-text-secondary w-24">服务:</span>
-            <span>{{ service?.name || '-' }}</span>
+            <span class="text-text-secondary w-24">{{ t('submit.labelService') }}</span>
+            <span>{{ displayServiceName || '-' }}</span>
           </div>
           <div class="flex">
-            <span class="text-text-secondary w-24">标题:</span>
+            <span class="text-text-secondary w-24">{{ t('submit.labelTitle') }}</span>
             <span>{{ title || '未命名任务' }}</span>
           </div>
           <div class="flex">
-            <span class="text-text-secondary w-24">文件:</span>
-            <span>{{ files?.length || 0 }} 个</span>
+            <span class="text-text-secondary w-24">{{ t('submit.labelFiles') }}</span>
+            <span>{{ t('submit.filesCount', { n: files?.length || 0 }) }}</span>
           </div>
         </div>
         <div class="flex justify-between">
@@ -247,14 +255,14 @@ onMounted(async () => {
             class="px-4 py-2 border border-border rounded-md text-sm font-medium hover:bg-bg-tertiary transition-colors"
             @click="prevStep"
           >
-            上一步
+            {{ t('submit.prev') }}
           </button>
           <button
             class="px-4 py-2 bg-accent text-white rounded-md text-sm font-medium hover:bg-accent-hover transition-colors disabled:opacity-50"
             :disabled="taskStore.isSubmitting"
             @click="submit"
           >
-            {{ taskStore.isSubmitting ? '提交中...' : '确认提交' }}
+            {{ taskStore.isSubmitting ? t('submit.submitting') : t('submit.confirmSubmit') }}
           </button>
         </div>
       </div>

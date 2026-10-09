@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useServerStore } from '@/stores/server'
 import { useUiStore } from '@/stores/ui'
 import { friendlyErrorMessage } from '@/utils/error'
 
 const serverStore = useServerStore()
 const uiStore = useUiStore()
+const { t } = useI18n()
 
 const showAddForm = ref(false)
 const newAlias = ref('')
@@ -17,21 +19,21 @@ const showRegisterForm = ref(false)
 
 function addServer() {
   if (!newAlias.value.trim()) {
-    uiStore.addToast('别名不能为空', 'error')
+    uiStore.addToast(t('settings.toastAliasRequired'), 'error')
     return
   }
   if (!newUrl.value.trim()) {
-    uiStore.addToast('服务器地址不能为空', 'error')
+    uiStore.addToast(t('settings.toastUrlRequired'), 'error')
     return
   }
   if (!/^https?:\/\//i.test(newUrl.value)) {
-    uiStore.addToast('服务器地址必须以 http:// 或 https:// 开头', 'error')
+    uiStore.addToast(t('settings.toastUrlProtocol'), 'error')
     return
   }
   try {
     new URL(newUrl.value.trim())
   } catch {
-    uiStore.addToast('服务器地址格式不正确', 'error')
+    uiStore.addToast(t('settings.toastUrlInvalid'), 'error')
     return
   }
   try {
@@ -39,7 +41,7 @@ function addServer() {
       alias: newAlias.value.trim(),
       serverUrl: newUrl.value.trim(),
     })
-    uiStore.addToast('服务器添加成功', 'success')
+    uiStore.addToast(t('settings.toastAddSuccess'), 'success')
     newAlias.value = ''
     newUrl.value = ''
     showAddForm.value = false
@@ -51,18 +53,18 @@ function addServer() {
 
 async function doRegister() {
   if (!registerName.value.trim()) {
-    uiStore.addToast('用户名不能为空', 'error')
+    uiStore.addToast(t('settings.toastUsernameRequired'), 'error')
     return
   }
   if (!registerPassword.value) {
-    uiStore.addToast('密码不能为空', 'error')
+    uiStore.addToast(t('settings.toastPasswordRequired'), 'error')
     return
   }
   try {
     uiStore.setLoading(true)
     // 注册与登录已合并：服务端在统一认证通过后自动创建用户（首次）或重签 Key（再次）
     await serverStore.login(registerAlias.value, registerName.value.trim(), registerPassword.value)
-    uiStore.addToast(registerIsRelogin.value ? '重新登录成功' : '注册成功', 'success')
+    uiStore.addToast(registerIsRelogin.value ? t('settings.toastReloginSuccess') : t('settings.toastRegisterSuccess'), 'success')
     showRegisterForm.value = false
     registerName.value = ''
     registerPassword.value = ''
@@ -94,17 +96,17 @@ function closeRegister() {
 
 <template>
   <div class="max-w-3xl mx-auto">
-    <h1 class="text-2xl font-bold mb-6">设置</h1>
+    <h1 class="text-2xl font-bold mb-6">{{ t('settings.title') }}</h1>
 
     <!-- Server List -->
     <div class="bg-bg-secondary border border-border rounded-lg p-6 mb-6">
       <div class="flex items-center justify-between mb-4">
-        <h2 class="text-lg font-semibold">服务器管理</h2>
+        <h2 class="text-lg font-semibold">{{ t('settings.serverMgmt') }}</h2>
         <button
           class="px-3 py-1.5 bg-accent text-white rounded-md text-sm font-medium hover:bg-accent-hover transition-colors"
           @click="showAddForm = !showAddForm"
         >
-          {{ showAddForm ? '取消' : '添加服务器' }}
+          {{ showAddForm ? t('common.cancel') : t('settings.addServer') }}
         </button>
       </div>
 
@@ -112,36 +114,36 @@ function closeRegister() {
       <div v-if="showAddForm" class="bg-bg-primary border border-border rounded-md p-4 mb-4">
         <div class="space-y-3">
           <div>
-            <label class="block text-sm font-medium text-text-secondary mb-1">别名 *</label>
+            <label class="block text-sm font-medium text-text-secondary mb-1">{{ t('settings.alias') }}</label>
             <input
               v-model="newAlias"
               type="text"
               class="w-full px-3 py-2 bg-bg-secondary border border-border rounded-md text-sm focus:border-accent focus:outline-none"
-              placeholder="如 prod, local"
+              :placeholder="t('settings.aliasPlaceholder')"
             />
           </div>
           <div>
-            <label class="block text-sm font-medium text-text-secondary mb-1">服务器地址 *</label>
+            <label class="block text-sm font-medium text-text-secondary mb-1">{{ t('settings.serverUrl') }}</label>
             <input
               v-model="newUrl"
               type="text"
               class="w-full px-3 py-2 bg-bg-secondary border border-border rounded-md text-sm focus:border-accent focus:outline-none"
               placeholder="https://openaaas.buaa.edu.cn"
             />
-            <p class="text-xs text-text-muted mt-1">必须以 http:// 或 https:// 开头</p>
+            <p class="text-xs text-text-muted mt-1">{{ t('settings.urlHint') }}</p>
           </div>
           <div class="flex gap-2">
             <button
               class="px-4 py-2 bg-accent text-white rounded-md text-sm font-medium hover:bg-accent-hover transition-colors"
               @click="addServer"
             >
-              确认添加
+              {{ t('settings.confirmAdd') }}
             </button>
             <button
               class="px-4 py-2 border border-border rounded-md text-sm font-medium hover:bg-bg-tertiary transition-colors"
               @click="showAddForm = false"
             >
-              取消
+              {{ t('common.cancel') }}
             </button>
           </div>
         </div>
@@ -150,26 +152,26 @@ function closeRegister() {
       <!-- Register form -->
       <div v-if="showRegisterForm" class="bg-bg-primary border border-border rounded-md p-4 mb-4">
         <p class="text-sm text-text-secondary mb-3">
-          {{ registerIsRelogin ? '重新登录到服务器' : '注册到服务器' }}: <strong>{{ registerAlias }}</strong>
+          {{ registerIsRelogin ? t('settings.reloginTo') : t('settings.registerTo') }}: <strong>{{ registerAlias }}</strong>
         </p>
         <div class="space-y-3">
           <div>
-            <label class="block text-sm font-medium text-text-secondary mb-1">用户名 *</label>
+            <label class="block text-sm font-medium text-text-secondary mb-1">{{ t('settings.username') }}</label>
             <input
               v-model="registerName"
               type="text"
               class="w-full px-3 py-2 bg-bg-secondary border border-border rounded-md text-sm focus:border-accent focus:outline-none"
-              placeholder="统一认证用户名"
+              :placeholder="t('settings.usernamePlaceholder')"
             />
-            <p class="text-xs text-text-muted mt-1">使用校园统一认证账号密码，首次使用将自动注册</p>
+            <p class="text-xs text-text-muted mt-1">{{ t('settings.usernameHint') }}</p>
           </div>
           <div>
-            <label class="block text-sm font-medium text-text-secondary mb-1">密码 *</label>
+            <label class="block text-sm font-medium text-text-secondary mb-1">{{ t('settings.password') }}</label>
             <input
               v-model="registerPassword"
               type="password"
               class="w-full px-3 py-2 bg-bg-secondary border border-border rounded-md text-sm focus:border-accent focus:outline-none"
-              placeholder="统一认证密码"
+              :placeholder="t('settings.passwordPlaceholder')"
             />
           </div>
           <div class="flex gap-2">
@@ -177,13 +179,13 @@ function closeRegister() {
               class="px-4 py-2 bg-accent text-white rounded-md text-sm font-medium hover:bg-accent-hover transition-colors"
               @click="doRegister"
             >
-              {{ registerIsRelogin ? '重新登录' : '注册' }}
+              {{ registerIsRelogin ? t('settings.relogin') : t('settings.register') }}
             </button>
             <button
               class="px-4 py-2 border border-border rounded-md text-sm font-medium hover:bg-bg-tertiary transition-colors"
               @click="closeRegister"
             >
-              返回
+              {{ t('common.back') }}
             </button>
           </div>
         </div>
@@ -191,7 +193,7 @@ function closeRegister() {
 
       <!-- Server list -->
       <div v-if="serverStore.servers.length === 0" class="text-center py-8 text-text-muted">
-        <p>暂无服务器配置</p>
+        <p>{{ t('settings.noServers') }}</p>
       </div>
 
       <div v-else class="space-y-3">
@@ -208,25 +210,25 @@ function closeRegister() {
                 v-if="server.isDefault"
                 class="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-accent/10 text-accent"
               >
-                默认
+                {{ t('settings.defaultTag') }}
               </span>
               <span
                 v-if="server.apiKey"
                 class="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-success/10 text-success"
               >
-                已注册
+                {{ t('settings.registered') }}
               </span>
               <span
                 v-if="serverStore.isAuthExpired(server.alias)"
                 class="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-danger/10 text-danger"
               >
-                登录已过期
+                {{ t('settings.authExpired') }}
               </span>
               <span
                 v-if="!server.apiKey"
                 class="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-danger/10 text-danger"
               >
-                未注册
+                {{ t('settings.notRegistered') }}
               </span>
             </div>
             <p class="text-xs text-text-muted truncate">{{ server.serverUrl }}</p>
@@ -238,14 +240,14 @@ function closeRegister() {
               class="px-2 py-1 text-xs border border-border rounded hover:bg-bg-tertiary transition-colors"
               @click="serverStore.setDefault(server.alias)"
             >
-              设为默认
+              {{ t('settings.setDefault') }}
             </button>
             <button
               v-if="!server.apiKey"
               class="px-2 py-1 text-xs bg-accent text-white rounded hover:bg-accent-hover transition-colors"
               @click="openRegister(server.alias)"
             >
-              注册
+              {{ t('settings.register') }}
             </button>
             <button
               v-else
@@ -255,14 +257,14 @@ function closeRegister() {
                 : 'border border-border hover:bg-bg-tertiary'"
               @click="openRegister(server.alias)"
             >
-              重新登录
+              {{ t('settings.relogin') }}
             </button>
             <button
               v-if="!server.isDefault"
               class="px-2 py-1 text-xs bg-danger text-white rounded hover:opacity-90 transition-opacity"
               @click="serverStore.removeServer(server.alias)"
             >
-              删除
+              {{ t('common.delete') }}
             </button>
           </div>
         </div>

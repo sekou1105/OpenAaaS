@@ -2,7 +2,10 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { httpFetch, httpFetchWithRedirect, parseServerError } from '@/composables/useHttp'
 import { friendlyErrorMessage } from '@/utils/error'
+import { i18n } from '@/i18n'
 import { loadState, saveState } from './persist'
+
+const t = i18n.global.t
 
 export interface Server {
   alias: string
@@ -90,7 +93,7 @@ export const useServerStore = defineStore('server', () => {
 
   function addServer(server: Omit<Server, 'isDefault'>) {
     if (servers.value.some((s) => s.alias === server.alias)) {
-      throw new Error(`服务器别名 "${server.alias}" 已存在`)
+      throw new Error(t('storeError.aliasExists', { alias: server.alias }))
     }
     const newServer: Server = { ...server, isDefault: servers.value.length === 0 }
     servers.value.push(newServer)
@@ -140,7 +143,7 @@ export const useServerStore = defineStore('server', () => {
    */
   async function login(alias: string, name: string, password: string): Promise<{ apiKey: string; clientId: string }> {
     const server = servers.value.find((s) => s.alias === alias)
-    if (!server) throw new Error('服务器不存在')
+    if (!server) throw new Error(t('storeError.serverNotFound'))
 
     const url = `${server.serverUrl.replace(/\/$/, '')}/api/v1/client/auth/login`
     const res = await httpFetchWithRedirect(url, {
@@ -151,12 +154,12 @@ export const useServerStore = defineStore('server', () => {
 
     if (!res.ok) {
       const message = await parseServerError(res)
-      throw new Error(`认证失败: ${res.status} ${message}`)
+      throw new Error(t('storeError.authFailed', { status: res.status, message }))
     }
 
     const data = await res.json()
     if (!data.api_key || !data.id) {
-      throw new Error('认证响应格式错误')
+      throw new Error(t('storeError.authBadResponse'))
     }
 
     updateServer(alias, {
@@ -171,11 +174,11 @@ export const useServerStore = defineStore('server', () => {
 
   async function fetchServices(alias?: string): Promise<ServiceItem[]> {
     const target = alias ?? defaultAlias.value
-    if (!target) throw new Error('没有配置默认服务器')
+    if (!target) throw new Error(t('storeError.noDefaultServer'))
 
     const server = servers.value.find((s) => s.alias === target)
-    if (!server) throw new Error('服务器不存在')
-    if (!server.apiKey) throw new Error('服务器未注册，请先获取 API Key')
+    if (!server) throw new Error(t('storeError.serverNotFound'))
+    if (!server.apiKey) throw new Error(t('storeError.serverNotRegisteredKey'))
 
     isFetching.value = true
     fetchError.value = null
@@ -188,12 +191,12 @@ export const useServerStore = defineStore('server', () => {
 
       if (res.status === 401) {
         markAuthExpired(target, true)
-        throw new Error('认证失败: 401 登录状态已过期，请到「设置」重新登录')
+        throw new Error(t('storeError.authExpired401'))
       }
 
       if (!res.ok) {
         const message = await parseServerError(res)
-        throw new Error(`获取服务列表失败: ${res.status} ${message}`)
+        throw new Error(t('storeError.fetchServicesFailed', { status: res.status, message }))
       }
 
       const data = await res.json()

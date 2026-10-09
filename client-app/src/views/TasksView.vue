@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import {
   AlertTriangle,
   CheckCircle,
@@ -16,6 +17,7 @@ import { useTaskStore, type Task, type TaskStatus } from '@/stores/task'
 import { useUiStore } from '@/stores/ui'
 import { formatSeconds } from '@/utils/estimate'
 import StatusBadge from '@/components/StatusBadge.vue'
+import { localizedServiceName } from '@/i18n/serviceEn'
 
 type FilterKey = 'all' | 'queued' | 'running' | 'completed' | 'failed'
 type TaskDisplayState = 'queued' | 'running' | 'completed' | 'failed'
@@ -28,6 +30,7 @@ type DisplayTask = Task & {
 const router = useRouter()
 const taskStore = useTaskStore()
 const uiStore = useUiStore()
+const { t } = useI18n()
 
 const filter = ref<FilterKey>('all')
 const searchQuery = ref('')
@@ -37,6 +40,7 @@ function isoMinutesAgo(minutes: number): string {
   return new Date(Date.now() - minutes * 60 * 1000).toISOString()
 }
 
+// 示例任务属于模拟用户内容（仅 DEV 且无真实任务时展示），不做国际化
 const demoTasks: DisplayTask[] = [
   {
     id: 'demo-pending-data-report',
@@ -123,7 +127,7 @@ const serviceOptions = computed(() => {
   for (const t of sortedTasks.value) {
     if (!t.isDemo && !seen.has(t.serviceId)) seen.set(t.serviceId, t.serviceName)
   }
-  return [...seen.entries()].map(([id, name]) => ({ id, name }))
+  return [...seen.entries()].map(([id, name]) => ({ id, name: localizedServiceName(id, name) }))
 })
 
 const filteredTasks = computed(() => {
@@ -144,11 +148,11 @@ const filteredTasks = computed(() => {
 const filterItems = computed(() => {
   const tasks = sortedTasks.value
   return [
-    { key: 'all' as const, label: '全部', count: tasks.length },
-    { key: 'queued' as const, label: '排队中', count: tasks.filter((t) => displayState(t.status) === 'queued').length },
-    { key: 'running' as const, label: '进行中', count: tasks.filter((t) => displayState(t.status) === 'running').length },
-    { key: 'completed' as const, label: '已完成', count: tasks.filter((t) => displayState(t.status) === 'completed').length },
-    { key: 'failed' as const, label: '失败', count: tasks.filter((t) => displayState(t.status) === 'failed').length },
+    { key: 'all' as const, label: t('common.all'), count: tasks.length },
+    { key: 'queued' as const, label: t('status.pending'), count: tasks.filter((t) => displayState(t.status) === 'queued').length },
+    { key: 'running' as const, label: t('status.runningAlt'), count: tasks.filter((t) => displayState(t.status) === 'running').length },
+    { key: 'completed' as const, label: t('status.completed'), count: tasks.filter((t) => displayState(t.status) === 'completed').length },
+    { key: 'failed' as const, label: t('status.failed'), count: tasks.filter((t) => displayState(t.status) === 'failed').length },
   ]
 })
 
@@ -183,36 +187,36 @@ function statusMeta(status: TaskDisplayState): {
     description: string
   }> = {
     queued: {
-      label: '排队中',
+      label: t('status.pending'),
       tone: 'accent',
       icon: Clock,
       accentClass: 'bg-accent-soft text-accent border-accent/20',
       textClass: 'text-accent',
-      description: '任务正在队列中等待服务接收。',
+      description: t('status.pendingDesc'),
     },
     running: {
-      label: '进行中',
+      label: t('status.runningAlt'),
       tone: 'info',
       icon: PlayCircle,
       accentClass: 'bg-info-soft text-info border-info/20',
       textClass: 'text-info',
-      description: '任务已发送到服务器，正在等待最终结果。',
+      description: t('status.runningDesc'),
     },
     completed: {
-      label: '已完成',
+      label: t('status.completed'),
       tone: 'success',
       icon: CheckCircle,
       accentClass: 'bg-success/10 text-success border-success/20',
       textClass: 'text-success',
-      description: '服务端已返回完成状态，可以查看输出。',
+      description: t('status.completedDesc'),
     },
     failed: {
-      label: '失败',
+      label: t('status.failed'),
       tone: 'danger',
       icon: XCircle,
       accentClass: 'bg-danger/10 text-danger border-danger/20',
       textClass: 'text-danger',
-      description: '服务端返回失败状态，或任务无法继续执行。',
+      description: t('status.failedDesc'),
     },
   }
   return map[status]
@@ -232,11 +236,11 @@ function durationText(task: DisplayTask): string {
   if (isNaN(start)) return '-'
   const end = task.completedAt ? new Date(task.completedAt).getTime() : Date.now()
   const sec = Math.max(0, Math.floor((end - start) / 1000))
-  if (sec < 60) return `${sec}秒`
+  if (sec < 60) return t('taskDetail.durSec', { n: sec })
   const min = Math.floor(sec / 60)
-  if (min < 60) return `${min}分${sec % 60}秒`
+  if (min < 60) return t('taskDetail.durMinSec', { m: min, s: sec % 60 })
   const h = Math.floor(min / 60)
-  return `${h}小时${min % 60}分`
+  return t('taskDetail.durHourMin', { h, m: min % 60 })
 }
 
 function openTask(task: DisplayTask) {
@@ -251,7 +255,7 @@ function estimateText(task: DisplayTask): string {
   if (state !== 'queued' && state !== 'running') return ''
   const est = taskStore.estimateServiceDuration(task.serviceId)
   if (!est) return ''
-  return `预计总耗时 ~${formatSeconds(est.avgSeconds)}（${est.sampleCount} 条历史）`
+  return t('tasks.estTotal', { avg: formatSeconds(est.avgSeconds), n: est.sampleCount })
 }
 
 // 清空历史：仅清除已结束任务，进行中/排队中保留；二次点击确认
@@ -272,7 +276,7 @@ function handleClearHistory() {
   window.clearTimeout(clearConfirmTimer)
   confirmingClear.value = false
   const removed = taskStore.clearFinishedTasks()
-  uiStore.addToast(`已清空 ${removed} 条历史任务`, 'success')
+  uiStore.addToast(t('tasks.toastCleared', { n: removed }), 'success')
 }
 </script>
 
@@ -282,29 +286,29 @@ function handleClearHistory() {
       <div>
         <div class="flex flex-wrap items-center gap-2">
           <p class="text-sm font-semibold text-accent">OpenAaaS Tasks</p>
-          <StatusBadge v-if="isDemoMode" label="示例数据" tone="secondary" compact />
+          <StatusBadge v-if="isDemoMode" :label="t('tasks.demoBadge')" tone="secondary" compact />
         </div>
-        <h1 class="mt-1 text-3xl font-bold text-info">任务列表</h1>
+        <h1 class="mt-1 text-3xl font-bold text-info">{{ t('tasks.title') }}</h1>
         <p class="mt-2 text-sm text-text-secondary">
-          按排队中、进行中、已完成和失败状态查看任务，快速判断下一步操作。
+          {{ t('tasks.subtitle') }}
         </p>
       </div>
 
       <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <div class="rounded-lg border border-border bg-bg-card px-4 py-3 shadow-sm">
-          <p class="text-[11px] font-semibold text-text-muted">排队中</p>
+          <p class="text-[11px] font-semibold text-text-muted">{{ t('status.pending') }}</p>
           <p class="mt-1 text-xl font-bold text-accent">{{ statusSummary.queued }}</p>
         </div>
         <div class="rounded-lg border border-border bg-bg-card px-4 py-3 shadow-sm">
-          <p class="text-[11px] font-semibold text-text-muted">进行中</p>
+          <p class="text-[11px] font-semibold text-text-muted">{{ t('status.runningAlt') }}</p>
           <p class="mt-1 text-xl font-bold text-info">{{ statusSummary.running }}</p>
         </div>
         <div class="rounded-lg border border-border bg-bg-card px-4 py-3 shadow-sm">
-          <p class="text-[11px] font-semibold text-text-muted">已完成</p>
+          <p class="text-[11px] font-semibold text-text-muted">{{ t('status.completed') }}</p>
           <p class="mt-1 text-xl font-bold text-success">{{ statusSummary.completed }}</p>
         </div>
         <div class="rounded-lg border border-border bg-bg-card px-4 py-3 shadow-sm">
-          <p class="text-[11px] font-semibold text-text-muted">失败</p>
+          <p class="text-[11px] font-semibold text-text-muted">{{ t('status.failed') }}</p>
           <p class="mt-1 text-xl font-bold text-danger">{{ statusSummary.failed }}</p>
         </div>
       </div>
@@ -317,16 +321,16 @@ function handleClearHistory() {
           v-model="searchQuery"
           type="search"
           class="w-full rounded-lg border border-border bg-bg-card py-2 pl-9 pr-3 text-sm shadow-sm focus:border-accent focus:outline-none"
-          placeholder="搜索任务标题、描述或服务名..."
-          aria-label="搜索任务"
+          :placeholder="t('tasks.searchPlaceholder')"
+          :aria-label="t('tasks.searchAria')"
         />
       </div>
       <select
         v-model="serviceFilter"
         class="rounded-lg border border-border bg-bg-card px-3 py-2 text-sm shadow-sm focus:border-accent focus:outline-none"
-        aria-label="按服务筛选"
+        :aria-label="t('tasks.filterAria')"
       >
-        <option value="all">全部服务</option>
+        <option value="all">{{ t('tasks.allServices') }}</option>
         <option v-for="s in serviceOptions" :key="s.id" :value="s.id">{{ s.name }}</option>
       </select>
       <button
@@ -338,7 +342,7 @@ function handleClearHistory() {
           : 'border border-danger/30 bg-bg-card text-danger hover:bg-danger/5'"
         @click="handleClearHistory"
       >
-        {{ confirmingClear ? `确认清空 ${finishedCount} 条历史？` : '清空历史' }}
+        {{ confirmingClear ? t('tasks.confirmClear', { n: finishedCount }) : t('tasks.clearHistory') }}
       </button>
     </div>
 
@@ -367,7 +371,7 @@ function handleClearHistory() {
 
     <div v-if="filteredTasks.length === 0" class="rounded-lg border border-border bg-bg-card py-20 text-center text-text-muted shadow-sm">
       <FileText class="mx-auto mb-3 h-8 w-8 text-text-muted" aria-hidden="true" />
-      <p class="text-sm">{{ searchQuery.trim() || serviceFilter !== 'all' ? '没有符合条件的任务' : '暂无任务' }}</p>
+      <p class="text-sm">{{ searchQuery.trim() || serviceFilter !== 'all' ? t('tasks.emptyFiltered') : t('tasks.empty') }}</p>
     </div>
 
     <div v-else class="space-y-3">
@@ -414,16 +418,16 @@ function handleClearHistory() {
               <div class="flex flex-wrap gap-2 text-xs text-text-muted">
                 <div class="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-border bg-bg-inset px-2.5 py-2">
                   <Server class="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
-                  <span class="truncate">{{ task.serviceName }}</span>
+                  <span class="truncate">{{ localizedServiceName(task.serviceId, task.serviceName) }}</span>
                 </div>
                 <div class="rounded-lg border border-border bg-bg-inset px-2.5 py-2">
-                  创建: {{ formatTime(task.createdAt) }}
+                  {{ t('taskDetail.created') }} {{ formatTime(task.createdAt) }}
                 </div>
                 <div class="rounded-lg border border-border bg-bg-inset px-2.5 py-2">
-                  耗时: {{ durationText(task) }}
+                  {{ t('taskDetail.duration') }} {{ durationText(task) }}
                 </div>
                 <div class="rounded-lg border border-border bg-bg-inset px-2.5 py-2">
-                  文件: {{ task.files.length }}
+                  {{ t('tasks.files') }} {{ task.files.length }}
                 </div>
               </div>
             </div>
@@ -432,7 +436,7 @@ function handleClearHistory() {
 
         <div class="mt-4 flex flex-wrap items-end justify-between gap-3">
           <div class="min-w-[220px] flex-1 rounded-lg border border-border bg-bg-inset px-3 py-2">
-            <p class="text-[11px] font-semibold text-text-muted">当前状态</p>
+            <p class="text-[11px] font-semibold text-text-muted">{{ t('tasks.currentStatus') }}</p>
             <p class="mt-1 text-sm font-semibold" :class="statusMeta(displayState(task.status)).textClass">
               {{ statusMeta(displayState(task.status)).description }}
             </p>
@@ -443,7 +447,7 @@ function handleClearHistory() {
               v-if="!task.isDemo"
               class="inline-flex items-center gap-1 text-accent opacity-0 transition-opacity group-hover:opacity-100"
             >
-              查看详情
+              {{ t('serviceCard.viewDetail') }}
               <Sparkles class="h-3.5 w-3.5" aria-hidden="true" />
             </span>
           </div>
@@ -461,7 +465,7 @@ function handleClearHistory() {
           class="mt-3 flex items-center gap-2 rounded-lg border border-accent/15 bg-accent-soft px-3 py-2 text-xs font-semibold text-accent"
         >
           <Clock class="h-4 w-4 flex-shrink-0" aria-hidden="true" />
-          <span>{{ task.isPolling ? '正在同步任务状态' : '等待下一次状态同步' }}</span>
+          <span>{{ task.isPolling ? t('tasks.syncing') : t('tasks.waitingSync') }}</span>
           <span v-if="estimateText(task)" class="text-text-secondary">· {{ estimateText(task) }}</span>
         </div>
       </button>

@@ -7,6 +7,7 @@ import TasksView from '@/views/TasksView.vue'
 import SettingsView from '@/views/SettingsView.vue'
 import GuideView from '@/views/GuideView.vue'
 
+// meta.titleKey 为 i18n 词条 key，供窗口标题等场景按当前语言解析
 const router = createRouter({
   history: createWebHashHistory(),
   routes: [
@@ -14,43 +15,43 @@ const router = createRouter({
       path: '/',
       name: 'home',
       component: HomeView,
-      meta: { title: '服务市场' },
+      meta: { titleKey: 'nav.home' },
     },
     {
       path: '/service/:id',
       name: 'service-detail',
       component: ServiceDetailView,
-      meta: { title: '服务详情' },
+      meta: { titleKey: 'serviceDetail.title' },
     },
     {
       path: '/submit/:serviceId',
       name: 'submit-task',
       component: SubmitTaskView,
-      meta: { title: '提交任务' },
+      meta: { titleKey: 'submit.title' },
     },
     {
       path: '/task/:id',
       name: 'task-detail',
       component: TaskDetailView,
-      meta: { title: '任务详情' },
+      meta: { titleKey: 'taskDetail.title' },
     },
     {
       path: '/tasks',
       name: 'tasks',
       component: TasksView,
-      meta: { title: '任务列表' },
+      meta: { titleKey: 'tasks.title' },
     },
     {
       path: '/settings',
       name: 'settings',
       component: SettingsView,
-      meta: { title: '设置' },
+      meta: { titleKey: 'settings.title' },
     },
     {
       path: '/guide',
       name: 'guide',
       component: GuideView,
-      meta: { title: '使用教程' },
+      meta: { titleKey: 'guide.title' },
     },
   ],
 })

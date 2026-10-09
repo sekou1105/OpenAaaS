@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import { useTaskStore, type TaskFile } from '@/stores/task'
@@ -11,6 +12,7 @@ import { friendlyErrorMessage } from '@/utils/error'
 import { classifyTaskError } from '@/utils/errorClassify'
 import { formatSeconds } from '@/utils/estimate'
 import { filePurpose } from '@/utils/filePurpose'
+import { localizedServiceName } from '@/i18n/serviceEn'
 import { httpFetch } from '@/composables/useHttp'
 import { save } from '@tauri-apps/plugin-dialog'
 import { writeFile } from '@tauri-apps/plugin-fs'
@@ -20,6 +22,7 @@ const router = useRouter()
 const taskStore = useTaskStore()
 const uiStore = useUiStore()
 const serverStore = useServerStore()
+const { t } = useI18n()
 
 const taskId = computed(() => String(route.params.id))
 const task = computed(() => taskStore.getTask(taskId.value))
@@ -30,14 +33,14 @@ const formattedStartedAt = computed(() => formatTime(task.value?.startedAt))
 const formattedCompletedAt = computed(() => formatTime(task.value?.completedAt))
 const duration = computed(() => durationText(task.value?.startedAt || task.value?.createdAt, task.value?.completedAt))
 
-const statusLabelMap: Record<string, string> = {
-  pending: '排队中',
-  running: '进行中',
-  completed: '已完成',
-  failed: '失败',
-  cancelled: '已取消',
-  cancelling: '取消中',
-}
+const statusLabelMap = computed<Record<string, string>>(() => ({
+  pending: t('status.pending'),
+  running: t('status.runningAlt'),
+  completed: t('status.completed'),
+  failed: t('status.failed'),
+  cancelled: t('status.canceled'),
+  cancelling: t('status.cancelling'),
+}))
 
 const statusClassMap: Record<string, string> = {
   pending: 'bg-accent/10 text-accent',
@@ -61,11 +64,11 @@ function durationText(startIso?: string, endIso?: string): string {
   if (isNaN(start)) return '-'
   const end = endIso ? new Date(endIso).getTime() : Date.now()
   const sec = Math.max(0, Math.floor((end - start) / 1000))
-  if (sec < 60) return `${sec}秒`
+  if (sec < 60) return t('taskDetail.durSec', { n: sec })
   const min = Math.floor(sec / 60)
-  if (min < 60) return `${min}分${sec % 60}秒`
+  if (min < 60) return t('taskDetail.durMinSec', { m: min, s: sec % 60 })
   const h = Math.floor(min / 60)
-  return `${h}小时${min % 60}分`
+  return t('taskDetail.durHourMin', { h, m: min % 60 })
 }
 
 const isTerminal = computed(() => {
@@ -80,20 +83,20 @@ const canCancel = computed(() => {
 
 /** 进行中/排队中任务的预计耗时（同服务历史已完成任务的均值） */
 const durationEstimate = computed(() => {
-  const t = task.value
-  if (!t || isTerminal.value) return null
-  return taskStore.estimateServiceDuration(t.serviceId)
+  const tk = task.value
+  if (!tk || isTerminal.value) return null
+  return taskStore.estimateServiceDuration(tk.serviceId)
 })
 
 const estimateText = computed(() => {
   const est = durationEstimate.value
   if (!est) return ''
-  let text = `预计总耗时 ~${formatSeconds(est.avgSeconds)}（基于 ${est.sampleCount} 条历史）`
+  let text = t('taskDetail.estTotal', { avg: formatSeconds(est.avgSeconds), n: est.sampleCount })
   if (task.value?.status === 'running' && task.value.startedAt) {
     const elapsed = (Date.now() - new Date(task.value.startedAt).getTime()) / 1000
     const remaining = est.avgSeconds - elapsed
-    if (remaining > 0) text += `，预计剩余 ~${formatSeconds(remaining)}`
-    else text += '，已超过历史均值，请耐心等待'
+    if (remaining > 0) text += t('taskDetail.estRemaining', { remain: formatSeconds(remaining) })
+    else text += t('taskDetail.estOverrun')
   }
   return text
 })
@@ -103,7 +106,7 @@ async function handleCancel() {
   try {
     uiStore.setLoading(true)
     await taskStore.cancelTask(task.value.id)
-    uiStore.addToast('任务已取消', 'success')
+    uiStore.addToast(t('taskDetail.toastCancelled'), 'success')
   } catch (err) {
     const msg = err instanceof Error ? friendlyErrorMessage(err.message) : friendlyErrorMessage(String(err))
     uiStore.addToast(msg, 'error')
@@ -141,7 +144,7 @@ async function handleRetry() {
   try {
     uiStore.setLoading(true)
     const newTaskId = await taskStore.retryTask(task.value.id)
-    uiStore.addToast('已重新提交任务（不含原附件）', 'success')
+    uiStore.addToast(t('taskDetail.toastResubmitted'), 'success')
     router.push(`/task/${newTaskId}`)
   } catch (err) {
     const msg = err instanceof Error ? friendlyErrorMessage(err.message) : friendlyErrorMessage(String(err))
@@ -164,32 +167,33 @@ const canFollowUp = computed(() => task.value?.status === 'completed')
 
 /** 同一会话的任务链（本地过滤，按创建时间排序） */
 const sessionChain = computed(() => {
-  const t = task.value
-  if (!t?.sessionId) return []
+  const tk = task.value
+  if (!tk?.sessionId) return []
   return taskStore.tasks
-    .filter((x) => x.sessionId === t.sessionId)
+    .filter((x) => x.sessionId === tk.sessionId)
     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
 })
 
 function handleFollowUp() {
-  const t = task.value
-  if (!t) return
-  const excerpt = (t.result || '').slice(0, 500)
+  const tk = task.value
+  if (!tk) return
+  const excerpt = (tk.result || '').slice(0, 500)
+  // 追问模板属于提交给服务端的业务数据，保持中文不做国际化
   const prompt = [
     '【追问背景】',
-    `原任务：${t.taskPrompt}`,
-    excerpt ? `前次结果摘要：${excerpt}${(t.result || '').length > 500 ? '……' : ''}` : '',
+    `原任务：${tk.taskPrompt}`,
+    excerpt ? `前次结果摘要：${excerpt}${(tk.result || '').length > 500 ? '……' : ''}` : '',
     '',
     '【我的新问题】',
     '',
   ].join('\n')
   router.push({
-    path: `/submit/${t.serviceId}`,
+    path: `/submit/${tk.serviceId}`,
     query: {
-      title: `（追问）${t.title}`,
+      title: `（追问）${tk.title}`,
       taskPrompt: prompt,
-      outputPrompt: t.outputPrompt,
-      ...(t.sessionId ? { sessionId: t.sessionId } : {}),
+      outputPrompt: tk.outputPrompt,
+      ...(tk.sessionId ? { sessionId: tk.sessionId } : {}),
     },
   })
 }
@@ -210,7 +214,7 @@ function handleDelete() {
   window.clearTimeout(deleteConfirmTimer)
   confirmingDelete.value = false
   taskStore.removeTask(task.value.id)
-  uiStore.addToast('任务记录已删除', 'success')
+  uiStore.addToast(t('taskDetail.toastDeleted'), 'success')
   router.push('/tasks')
 }
 
@@ -219,7 +223,7 @@ async function handleResumePolling() {
   try {
     uiStore.setLoading(true)
     taskStore.resumePollingForTask(task.value.id)
-    uiStore.addToast('已恢复轮询', 'success')
+    uiStore.addToast(t('taskDetail.toastPollingResumed'), 'success')
   } catch (err) {
     const msg = err instanceof Error ? friendlyErrorMessage(err.message) : friendlyErrorMessage(String(err))
     uiStore.addToast(msg, 'error')
@@ -235,11 +239,11 @@ const renderedResult = computed(() => {
 })
 
 async function downloadFile(file: TaskFile) {
-  const t = task.value
-  if (!t) return
-  const server = serverStore.servers.find((s) => s.alias === t.serverAlias)
+  const tk = task.value
+  if (!tk) return
+  const server = serverStore.servers.find((s) => s.alias === tk.serverAlias)
   if (!server || !server.apiKey) {
-    uiStore.addToast('服务器配置不存在', 'error')
+    uiStore.addToast(t('taskDetail.toastServerMissing'), 'error')
     return
   }
   try {
@@ -249,6 +253,7 @@ async function downloadFile(file: TaskFile) {
     const res = await httpFetch(url, {
       headers: { Authorization: `Bearer ${server.apiKey}` },
     })
+    // 错误信息会进入 errorClassify/friendlyError 中文匹配管线，保持原文
     if (!res.ok) throw new Error(`下载失败: ${res.status}`)
     const blob = await res.blob()
 
@@ -256,12 +261,12 @@ async function downloadFile(file: TaskFile) {
       const safeName = file.filename.replace(/[/\\]/g, '_')
       const filePath = await save({ defaultPath: safeName })
       if (!filePath) {
-        uiStore.addToast('已取消保存', 'info')
+        uiStore.addToast(t('taskDetail.toastSaveCancelled'), 'info')
         return
       }
       const arrayBuffer = await blob.arrayBuffer()
       await writeFile(filePath, new Uint8Array(arrayBuffer))
-      uiStore.addToast(`文件已保存: ${filePath}`, 'success', 6000)
+      uiStore.addToast(t('taskDetail.toastFileSaved', { path: filePath }), 'success', 6000)
     } catch {
       const objectUrl = URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -271,7 +276,7 @@ async function downloadFile(file: TaskFile) {
       a.click()
       document.body.removeChild(a)
       setTimeout(() => URL.revokeObjectURL(objectUrl), 60000)
-      uiStore.addToast('文件已开始下载，请查看系统下载文件夹', 'info', 5000)
+      uiStore.addToast(t('taskDetail.toastDownloadStarted'), 'info', 5000)
     }
   } catch (err) {
     uiStore.addToast(err instanceof Error ? friendlyErrorMessage(err.message) : friendlyErrorMessage(String(err)), 'error')
@@ -298,14 +303,14 @@ watch(() => route.params.id, () => {
 <template>
   <div v-if="task" class="max-w-3xl mx-auto">
     <div class="mb-6">
-      <nav class="mb-2 flex items-center gap-1.5 text-sm text-text-secondary" aria-label="面包屑">
-        <button type="button" class="hover:text-text-primary" @click="goBack">← 返回</button>
+      <nav class="mb-2 flex items-center gap-1.5 text-sm text-text-secondary" :aria-label="t('taskDetail.breadcrumb')">
+        <button type="button" class="hover:text-text-primary" @click="goBack">{{ t('taskDetail.back') }}</button>
         <span class="text-text-muted">|</span>
-        <router-link to="/tasks" class="hover:text-text-primary">任务列表</router-link>
+        <router-link to="/tasks" class="hover:text-text-primary">{{ t('taskDetail.tasks') }}</router-link>
         <span class="text-text-muted">/</span>
-        <span class="text-text-primary">任务详情</span>
+        <span class="text-text-primary">{{ t('taskDetail.title') }}</span>
       </nav>
-      <h1 class="text-2xl font-bold mt-2">任务详情</h1>
+      <h1 class="text-2xl font-bold mt-2">{{ t('taskDetail.title') }}</h1>
     </div>
 
     <div class="bg-bg-secondary border border-border rounded-lg p-6">
@@ -318,34 +323,34 @@ watch(() => route.params.id, () => {
         </span>
         <span v-if="task.isPolling" class="flex items-center gap-1.5 text-sm text-text-secondary">
           <span class="inline-block w-3 h-3 border-2 border-bg-hover border-t-accent rounded-full animate-spin" />
-          轮询中
+          {{ t('taskDetail.polling') }}
         </span>
       </div>
 
       <h2 class="text-lg font-semibold mb-1">{{ task.title }}</h2>
-      <p class="text-sm text-text-secondary mb-4">服务: {{ task.serviceName }}</p>
+      <p class="text-sm text-text-secondary mb-4">{{ t('taskDetail.service') }} {{ localizedServiceName(task.serviceId, task.serviceName) }}</p>
 
       <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm text-text-secondary mb-6">
-        <span>创建: {{ formattedCreatedAt }}</span>
-        <span v-if="task.startedAt">开始: {{ formattedStartedAt }}</span>
-        <span v-if="task.completedAt">完成: {{ formattedCompletedAt }}</span>
-        <span>耗时: {{ duration }}</span>
+        <span>{{ t('taskDetail.created') }} {{ formattedCreatedAt }}</span>
+        <span v-if="task.startedAt">{{ t('taskDetail.started') }} {{ formattedStartedAt }}</span>
+        <span v-if="task.completedAt">{{ t('taskDetail.completed') }} {{ formattedCompletedAt }}</span>
+        <span>{{ t('taskDetail.duration') }} {{ duration }}</span>
         <span v-if="estimateText" class="text-accent">{{ estimateText }}</span>
       </div>
 
       <!-- Result area -->
       <div v-if="task.result != null" class="mb-6">
-        <h3 class="text-sm font-semibold uppercase tracking-wide text-text-secondary mb-2">结果</h3>
+        <h3 class="text-sm font-semibold uppercase tracking-wide text-text-secondary mb-2">{{ t('taskDetail.result') }}</h3>
         <div class="bg-bg-primary border border-border rounded-md p-4 text-sm leading-relaxed prose max-w-none" v-html="renderedResult" />
       </div>
       <div v-else-if="task.status === 'completed' && task.isFetchingResult" class="mb-6">
-        <h3 class="text-sm font-semibold uppercase tracking-wide text-text-secondary mb-2">结果</h3>
+        <h3 class="text-sm font-semibold uppercase tracking-wide text-text-secondary mb-2">{{ t('taskDetail.result') }}</h3>
         <Skeleton :rows="6" height="14px" />
       </div>
 
       <!-- Files -->
       <div v-if="realFiles.length > 0" class="mb-6">
-        <h3 class="text-sm font-semibold uppercase tracking-wide text-text-secondary mb-2">结果文件</h3>
+        <h3 class="text-sm font-semibold uppercase tracking-wide text-text-secondary mb-2">{{ t('taskDetail.resultFiles') }}</h3>
         <div class="space-y-2">
           <div
             v-for="file in realFiles"
@@ -354,20 +359,20 @@ watch(() => route.params.id, () => {
           >
             <div class="flex-1 min-w-0">
               <p class="text-sm truncate">{{ file.filename }}</p>
-              <p class="text-xs text-text-muted mt-0.5">用途：{{ filePurpose(file.filename, file.mimeType) }}</p>
+              <p class="text-xs text-text-muted mt-0.5">{{ t('taskDetail.filePurpose') }}{{ filePurpose(file.filename, file.mimeType) }}</p>
             </div>
             <span class="text-xs text-text-muted">{{ (file.sizeBytes / 1024).toFixed(1) }} KB</span>
             <button
               class="px-2 py-1 text-xs bg-accent text-white rounded hover:bg-accent-hover transition-colors"
               @click="downloadFile(file)"
             >
-              下载
+              {{ t('taskDetail.download') }}
             </button>
           </div>
         </div>
       </div>
       <div v-else-if="task.status === 'completed' && task.isFetchingResult" class="mb-6">
-        <h3 class="text-sm font-semibold uppercase tracking-wide text-text-secondary mb-2">结果文件</h3>
+        <h3 class="text-sm font-semibold uppercase tracking-wide text-text-secondary mb-2">{{ t('taskDetail.resultFiles') }}</h3>
         <Skeleton :rows="2" height="14px" />
       </div>
 
@@ -375,11 +380,11 @@ watch(() => route.params.id, () => {
       <div v-if="task.errorMessage || task.fetchError" class="mb-6">
         <div class="bg-danger/5 border border-danger/20 rounded-md p-3 text-sm text-danger">
           <div v-if="classifiedError" class="mb-1">
-            <span class="font-semibold">失败原因：{{ classifiedError.label }}</span>
+            <span class="font-semibold">{{ t('taskDetail.failureReason') }}{{ classifiedError.label }}</span>
           </div>
           {{ task.errorMessage || task.fetchError }}
           <p v-if="classifiedError" class="mt-2 text-xs text-text-secondary">
-            建议：{{ classifiedError.suggestion }}
+            {{ t('taskDetail.suggestion') }}{{ classifiedError.suggestion }}
           </p>
         </div>
       </div>
@@ -393,7 +398,7 @@ watch(() => route.params.id, () => {
 
       <!-- 会话任务链 -->
       <div v-if="sessionChain.length > 1" class="mb-6">
-        <h3 class="text-sm font-semibold uppercase tracking-wide text-text-secondary mb-2">会话任务链</h3>
+        <h3 class="text-sm font-semibold uppercase tracking-wide text-text-secondary mb-2">{{ t('taskDetail.sessionChain') }}</h3>
         <div class="flex flex-wrap gap-2">
           <router-link
             v-for="(s, i) in sessionChain"
@@ -404,7 +409,7 @@ watch(() => route.params.id, () => {
               ? 'border-accent bg-accent text-white'
               : 'border-border bg-bg-primary text-text-secondary hover:border-accent/40 hover:text-accent'"
           >
-            第{{ i + 1 }}轮 · {{ statusLabelMap[s.status] || s.status }}
+            {{ t('taskDetail.round', { n: i + 1 }) }} · {{ statusLabelMap[s.status] || s.status }}
           </router-link>
         </div>
       </div>
@@ -416,39 +421,39 @@ watch(() => route.params.id, () => {
           class="px-4 py-2 bg-danger text-white rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
           @click="handleCancel"
         >
-          取消任务
+          {{ t('taskDetail.cancelTask') }}
         </button>
         <button
           v-if="canCancel && task.pollError"
           class="px-4 py-2 bg-accent text-white rounded-md text-sm font-medium hover:bg-accent-hover transition-colors"
           @click="handleResumePolling"
         >
-          恢复轮询
+          {{ t('taskDetail.resumePolling') }}
         </button>
         <button
           v-if="canFollowUp"
           class="px-4 py-2 bg-accent text-white rounded-md text-sm font-medium hover:bg-accent-hover transition-colors"
-          title="基于本次结果继续提问，新任务将与本任务同一会话提交"
+          :title="t('taskDetail.followUpTitle')"
           @click="handleFollowUp"
         >
-          继续追问
+          {{ t('taskDetail.followUp') }}
         </button>
         <button
           v-if="canRetry"
           class="px-4 py-2 bg-accent text-white rounded-md text-sm font-medium hover:bg-accent-hover transition-colors disabled:opacity-50"
           :disabled="taskStore.isSubmitting"
-          title="使用原任务的描述和输出要求重新提交（不含原附件）"
+          :title="t('taskDetail.retryTitle')"
           @click="handleRetry"
         >
-          {{ taskStore.isSubmitting ? '提交中...' : '一键重试' }}
+          {{ taskStore.isSubmitting ? t('taskDetail.submitting') : t('taskDetail.retry') }}
         </button>
         <button
           v-if="isTerminal"
           class="px-4 py-2 border border-border rounded-md text-sm font-medium hover:bg-bg-tertiary transition-colors"
-          title="带着原任务内容前往提交页，可修改后再提交"
+          :title="t('taskDetail.resubmitTitle')"
           @click="handleResubmit"
         >
-          修改后重新提交
+          {{ t('taskDetail.resubmit') }}
         </button>
         <button
           v-if="isTerminal"
@@ -458,14 +463,14 @@ watch(() => route.params.id, () => {
             : 'border border-danger/30 text-danger hover:bg-danger/5'"
           @click="handleDelete"
         >
-          {{ confirmingDelete ? '确认删除？' : '删除记录' }}
+          {{ confirmingDelete ? t('taskDetail.confirmDelete') : t('taskDetail.deleteRecord') }}
         </button>
       </div>
     </div>
   </div>
 
   <div v-else class="max-w-3xl mx-auto text-text-muted">
-    <p>任务不存在或已被删除</p>
-    <router-link to="/" class="text-accent hover:underline text-sm mt-2 inline-block">返回首页</router-link>
+    <p>{{ t('taskDetail.notFound') }}</p>
+    <router-link to="/" class="text-accent hover:underline text-sm mt-2 inline-block">{{ t('taskDetail.backHome') }}</router-link>
   </div>
 </template>

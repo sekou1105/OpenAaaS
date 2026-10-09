@@ -3,6 +3,7 @@ import { useServerStore } from '@/stores/server'
 import { useUiStore } from '@/stores/ui'
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import type { ServiceItem } from '@/stores/server'
 import { httpFetch } from '@/composables/useHttp'
 import { friendlyErrorMessage } from '@/utils/error'
@@ -15,6 +16,7 @@ import { loadState, saveState } from '@/stores/persist'
 const serverStore = useServerStore()
 const uiStore = useUiStore()
 const router = useRouter()
+const { t } = useI18n()
 
 interface ServiceLoad {
   capacity?: number
@@ -50,11 +52,11 @@ const seedServiceIds = new Set([
   'data-analysis',
 ])
 
-const supplementalDemoServices: ServiceItem[] = [
+const supplementalDemoServices = computed<ServiceItem[]>(() => [
   {
     id: 'demo-online-agent',
-    name: '实时问答代理',
-    description: '在线 Agent 示例，可公开访问并提供多个可用任务槽位。',
+    name: t('home.demoOnlineName'),
+    description: t('home.demoOnlineDesc'),
     agentStatus: 'online',
     registrationStatus: 'active',
     accessType: 'public',
@@ -63,8 +65,8 @@ const supplementalDemoServices: ServiceItem[] = [
   },
   {
     id: 'demo-busy-agent',
-    name: '高负载渲染代理',
-    description: '忙碌 Agent 示例，用于观察 busy 状态和满负载数据卡片。',
+    name: t('home.demoBusyName'),
+    description: t('home.demoBusyDesc'),
     agentStatus: 'busy',
     registrationStatus: 'active',
     accessType: 'public',
@@ -73,8 +75,8 @@ const supplementalDemoServices: ServiceItem[] = [
   },
   {
     id: 'demo-restricted-granted',
-    name: '受限合规审查',
-    description: '已授权访问的受限服务示例，适合合规审查和敏感内容处理。',
+    name: t('home.demoRestrictedName'),
+    description: t('home.demoRestrictedDesc'),
     agentStatus: 'online',
     registrationStatus: 'active',
     accessType: 'restricted',
@@ -83,14 +85,14 @@ const supplementalDemoServices: ServiceItem[] = [
   },
   {
     id: 'demo-revoked-agent',
-    name: '离线旧版代理',
-    description: '旧版 Agent 当前不可用，展示服务暂时无法使用时的视觉效果。',
+    name: t('home.demoOfflineName'),
+    description: t('home.demoOfflineDesc'),
     agentStatus: 'offline',
     registrationStatus: 'revoked',
     accessType: 'public',
     hasPermission: true,
   },
-]
+])
 
 const supplementalDemoLoads: Record<string, ServiceLoad | null> = {
   'demo-online-agent': {
@@ -127,7 +129,7 @@ const isSeedServiceList = computed(() => {
 const displayServices = computed(() => {
   const services = cachedServices.value
   if (!services) return services
-  if (isSeedServiceList.value) return [...services, ...supplementalDemoServices]
+  if (isSeedServiceList.value) return [...services, ...supplementalDemoServices.value]
   return services
 })
 
@@ -209,11 +211,11 @@ onMounted(async () => {
       <div>
         <div class="flex flex-wrap items-center gap-2">
           <p class="text-sm font-semibold text-accent">OpenAaaS Services</p>
-          <StatusBadge v-if="isSeedServiceList" label="示例服务" tone="secondary" compact />
+          <StatusBadge v-if="isSeedServiceList" :label="t('home.demoBadge')" tone="secondary" compact />
         </div>
-        <h1 class="mt-1 text-3xl font-bold text-info">服务市场</h1>
+        <h1 class="mt-1 text-3xl font-bold text-info">{{ t('home.title') }}</h1>
         <p class="mt-2 text-sm text-text-secondary">
-          浏览可用 Agent 服务，查看访问权限、在线状态和实时负载。
+          {{ t('home.subtitle') }}
         </p>
       </div>
       <div class="flex items-center gap-2">
@@ -222,13 +224,13 @@ onMounted(async () => {
           class="inline-flex h-10 items-center gap-1.5 rounded-lg border border-border bg-bg-card px-3 text-sm font-semibold text-text-secondary shadow-sm transition-colors hover:border-accent/35 hover:text-accent"
         >
           <BookOpen class="h-4 w-4" :stroke-width="2.25" aria-hidden="true" />
-          使用教程
+          {{ t('home.guide') }}
         </router-link>
         <button
           class="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-bg-card text-text-secondary shadow-sm transition-colors hover:border-accent/35 hover:text-accent"
           :class="{ 'animate-spin': isRefreshing }"
-          title="刷新"
-          aria-label="刷新服务列表"
+          :title="t('home.refresh')"
+          :aria-label="t('home.refreshAria')"
           @click="retryFetch"
         >
           <RefreshCw class="h-5 w-5" :stroke-width="2.25" aria-hidden="true" />
@@ -242,8 +244,8 @@ onMounted(async () => {
       class="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-accent/25 bg-accent-soft px-4 py-3 shadow-sm"
     >
       <p class="text-sm text-text-secondary">
-        <span class="font-semibold text-accent">第一次使用？</span>
-        花三分钟看看使用教程，了解如何添加服务器、登录并提交第一个任务。
+        <span class="font-semibold text-accent">{{ t('home.bannerTitle') }}</span>
+        {{ t('home.bannerText') }}
       </p>
       <div class="flex items-center gap-2">
         <router-link
@@ -251,13 +253,13 @@ onMounted(async () => {
           class="rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-accent-hover"
           @click="dismissGuideBanner"
         >
-          查看教程
+          {{ t('home.bannerAction') }}
         </router-link>
         <button
           class="rounded-md border border-border px-3 py-1.5 text-xs font-semibold text-text-secondary transition-colors hover:bg-bg-tertiary"
           @click="dismissGuideBanner"
         >
-          不再提示
+          {{ t('home.bannerDismiss') }}
         </button>
       </div>
     </div>
@@ -270,13 +272,13 @@ onMounted(async () => {
       <div class="mb-4 flex h-14 w-14 items-center justify-center rounded-lg bg-accent-soft text-accent">
         <PlugZap class="h-7 w-7" :stroke-width="2.25" aria-hidden="true" />
       </div>
-      <p class="mb-2 text-lg font-bold text-info">暂无服务器</p>
-      <p class="text-sm text-text-secondary">请先添加服务器以浏览可用服务</p>
+      <p class="mb-2 text-lg font-bold text-info">{{ t('home.noServersTitle') }}</p>
+      <p class="text-sm text-text-secondary">{{ t('home.noServersHint') }}</p>
       <router-link
         to="/settings"
         class="mt-4 inline-flex items-center rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-accent-hover"
       >
-        前往设置添加服务器 →
+        {{ t('home.goSettings') }}
       </router-link>
     </div>
 
@@ -288,10 +290,10 @@ onMounted(async () => {
       <div class="mb-4 flex h-14 w-14 items-center justify-center rounded-lg bg-bg-card text-secondary">
         <AlertTriangle class="h-7 w-7" :stroke-width="2.25" aria-hidden="true" />
       </div>
-      <p class="mb-2 text-lg font-bold text-info">加载失败</p>
+      <p class="mb-2 text-lg font-bold text-info">{{ t('home.loadFailed') }}</p>
       <p class="text-sm text-text-secondary">{{ fetchError }}</p>
       <p v-if="isAuthFailure" class="mt-2 text-sm text-text-secondary">
-        当前登录状态已失效（常见于服务端重启或密钥重置后），重新登录即可自动重签 API Key。
+        {{ t('home.authExpiredHint') }}
       </p>
       <div class="mt-4 flex items-center justify-center gap-3">
         <router-link
@@ -299,7 +301,7 @@ onMounted(async () => {
           to="/settings"
           class="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-accent-hover"
         >
-          前往设置重新登录 →
+          {{ t('home.goRelogin') }}
         </router-link>
         <button
           class="rounded-md px-4 py-2 text-sm font-semibold shadow-sm transition-colors"
@@ -308,7 +310,7 @@ onMounted(async () => {
             : 'bg-accent text-white hover:bg-accent-hover'"
           @click="retryFetch"
         >
-          重试
+          {{ t('common.retry') }}
         </button>
       </div>
     </div>
@@ -341,7 +343,7 @@ onMounted(async () => {
       <div class="mb-4 flex h-14 w-14 items-center justify-center rounded-lg bg-bg-secondary text-text-secondary">
         <Inbox class="h-7 w-7" :stroke-width="2.25" aria-hidden="true" />
       </div>
-      <p class="text-lg font-bold text-info">当前服务器没有可用服务</p>
+      <p class="text-lg font-bold text-info">{{ t('home.noServices') }}</p>
     </div>
 
     <!-- Service grid placeholder -->

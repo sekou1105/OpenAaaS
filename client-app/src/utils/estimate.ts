@@ -4,6 +4,8 @@
  * 纯前端启发式，服务端日后提供 estimated_duration 字段时可整体替换。
  */
 
+import { i18n } from '@/i18n'
+
 export interface DurationEstimate {
   /** 历史样本数 */
   sampleCount: number
@@ -27,12 +29,13 @@ export function estimateDurations(samples: number[]): DurationEstimate | null {
   }
 }
 
-/** 与任务视图一致的耗时长文案：X秒 / X分X秒 / X小时X分 */
+/** 与任务视图一致的耗时长文案：X秒 / X分X秒 / X小时X分（经 i18n 解析） */
 export function formatSeconds(totalSeconds: number): string {
   const sec = Math.max(0, Math.round(totalSeconds))
-  if (sec < 60) return `${sec}秒`
+  const t = i18n.global.t
+  if (sec < 60) return t('taskDetail.durSec', { n: sec })
   const min = Math.floor(sec / 60)
-  if (min < 60) return `${min}分${sec % 60}秒`
+  if (min < 60) return t('taskDetail.durMinSec', { m: min, s: sec % 60 })
   const h = Math.floor(min / 60)
-  return `${h}小时${min % 60}分`
+  return t('taskDetail.durHourMin', { h, m: min % 60 })
 }

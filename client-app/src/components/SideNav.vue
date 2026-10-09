@@ -1,19 +1,24 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { ClipboardList, Settings, Store } from '@lucide/vue'
+import { useI18n } from 'vue-i18n'
+import { ClipboardList, Languages, Settings, Store } from '@lucide/vue'
 import { useTaskStore } from '@/stores/task'
 import { useUiStore } from '@/stores/ui'
+import { toggleLocale } from '@/i18n'
 const router = useRouter()
 const route = useRoute()
 const taskStore = useTaskStore()
 const uiStore = useUiStore()
+const { t, locale } = useI18n()
 
-const navItems = [
-  { name: 'home', label: '服务市场', icon: Store },
-  { name: 'tasks', label: '任务列表', icon: ClipboardList },
-  { name: 'settings', label: '设置', icon: Settings },
-]
+const navItems = computed(() => [
+  { name: 'home', label: t('nav.home'), icon: Store },
+  { name: 'tasks', label: t('nav.tasks'), icon: ClipboardList },
+  { name: 'settings', label: t('nav.settings'), icon: Settings },
+])
+
+const langLabel = computed(() => (locale.value === 'zh-CN' ? 'EN' : '中'))
 
 const activeTab = computed(() => {
   if (route.path === '/') return 'home'
@@ -43,7 +48,7 @@ function isActive(name: string): boolean {
       class="brand-logo mb-6 select-none"
       type="button"
       title="OpenAaaS"
-      aria-label="返回服务市场"
+      :aria-label="t('nav.backHome')"
       @click="navigateTo('home')"
     >
       <img src="/logo-mark-blue.png" alt="" class="w-11 h-auto" aria-hidden="true" />
@@ -79,7 +84,16 @@ function isActive(name: string): boolean {
       </button>
     </div>
 
-
+    <!-- Language Switch -->
+    <button
+      type="button"
+      :title="t('nav.switchLang')"
+      class="mt-2 flex min-h-[44px] w-[52px] flex-col items-center justify-center gap-0.5 rounded-lg border border-transparent text-text-secondary transition-all hover:border-border hover:bg-bg-primary hover:text-text-primary hover:shadow-sm"
+      @click="toggleLocale()"
+    >
+      <Languages class="h-5 w-5" :stroke-width="2" aria-hidden="true" />
+      <span class="text-[10px] font-semibold leading-none">{{ langLabel }}</span>
+    </button>
   </nav>
 </template>
 

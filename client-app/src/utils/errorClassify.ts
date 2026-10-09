@@ -1,7 +1,10 @@
 /**
  * 失败原因细分：将任务 errorMessage 归类为用户可理解的类别，
  * 并给出对应的处理建议。纯展示层工具，不影响数据流。
+ * 文案经 i18n 解析，随界面语言切换。
  */
+
+import { i18n } from '@/i18n'
 
 export type ErrorCategory =
   | 'cancelled-by-user'
@@ -20,36 +23,22 @@ export interface ClassifiedError {
   suggestion: string
 }
 
-const CATEGORY_META: Record<ErrorCategory, { label: string; suggestion: string }> = {
-  'cancelled-by-user': {
-    label: '手动取消',
-    suggestion: '该任务由用户主动取消。如需相同结果，可使用「一键重试」重新提交。',
-  },
-  'too-many-files': {
-    label: '回答文件过多',
-    suggestion:
-      '服务检测到工作区中存在多个候选文件。请进入服务工作区清理历史任务产生的文件，仅保留本次需要的业务文件后重试；系统自带的说明文件（如 README.md）也可能被误识别，清理时请注意区分。',
-  },
-  permission: {
-    label: '权限不足',
-    suggestion: '服务或附件访问权限不足。请确认您已获得该服务的授权，或联系服务提供方开通权限后重试。',
-  },
-  network: {
-    label: '网络异常',
-    suggestion: '与服务器通信失败。请检查网络连接和服务器地址配置，然后使用「一键重试」。',
-  },
-  'payload-too-large': {
-    label: '附件过大',
-    suggestion: '上传的附件超过大小限制。请压缩或拆分附件后重新提交。',
-  },
-  'server-error': {
-    label: '服务端执行错误',
-    suggestion: '服务端执行过程中出错。可直接「一键重试」；若多次失败，请将失败信息反馈给服务提供方。',
-  },
-  unknown: {
-    label: '未知原因',
-    suggestion: '失败原因未能识别。建议「一键重试」一次；若仍失败，请联系服务提供方排查。',
-  },
+const CATEGORY_KEY: Record<ErrorCategory, string> = {
+  'cancelled-by-user': 'cancelledByUser',
+  'too-many-files': 'tooManyFiles',
+  permission: 'permission',
+  network: 'network',
+  'payload-too-large': 'payloadTooLarge',
+  'server-error': 'serverError',
+  unknown: 'unknown',
+}
+
+function categoryMeta(category: ErrorCategory): { label: string; suggestion: string } {
+  const key = CATEGORY_KEY[category]
+  return {
+    label: i18n.global.t(`errorClassify.${key}Label`),
+    suggestion: i18n.global.t(`errorClassify.${key}Suggestion`),
+  }
 }
 
 export function classifyTaskError(errorMessage?: string): ClassifiedError | null {
@@ -110,5 +99,5 @@ export function classifyTaskError(errorMessage?: string): ClassifiedError | null
     category = 'unknown'
   }
 
-  return { category, ...CATEGORY_META[category] }
+  return { category, ...categoryMeta(category) }
 }

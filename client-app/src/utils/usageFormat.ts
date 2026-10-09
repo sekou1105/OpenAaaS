@@ -5,12 +5,19 @@
  * 这里先做规范化，再交给 marked + DOMPurify 渲染。
  */
 
+import { i18n } from '@/i18n'
+
 const KNOWN_FIELDS = ['task_prompt', 'output_prompt']
 
-/** 已知字段的中文友好标签 */
-const FIELD_LABELS: Record<string, string> = {
-  task_prompt: '任务描述',
-  output_prompt: '输出要求',
+/** 已知字段的友好标签 key（随界面语言解析） */
+const FIELD_LABEL_KEYS: Record<string, string> = {
+  task_prompt: 'usageFormat.taskPrompt',
+  output_prompt: 'usageFormat.outputPrompt',
+}
+
+function fieldLabel(field: string): string {
+  const key = FIELD_LABEL_KEYS[field]
+  return key ? `${i18n.global.t(key)}（${field}）` : field
 }
 
 /** YAML 块标量键行：task_prompt: | / "output_prompt": >- / task_prompt：|2 / task_prompt: （空值+缩进块）等 */
@@ -40,8 +47,7 @@ function transformYamlBlocks(text: string): string {
     }
 
     const key = m[1]
-    const label = FIELD_LABELS[key] ? `${FIELD_LABELS[key]}（${key}）` : key
-    out.push(`**${label}：**`)
+    out.push(`**${fieldLabel(key)}：**`)
     i++
 
     // 收集块内容：缩进行与块内空行。
@@ -78,8 +84,8 @@ function transformYamlBlocks(text: string): string {
   return out.join('\n')
 }
 
-/** 伪编号小节标题：方式一：xxx / 模式1: xxx / 示例二 - xxx / 步骤 3：xxx */
-const PSEUDO_HEADING_RE = /^(\s*)(方式|模式|示例|步骤|阶段)\s*([一二三四五六七八九十0-9]+)\s*[：:．.、-]/
+/** 伪编号小节标题：方式一：xxx / 模式1: xxx / 示例二 - xxx / 步骤 3：xxx / Mode 2: xxx / Example 1: xxx */
+const PSEUDO_HEADING_RE = /^(\s*)(方式|模式|示例|步骤|阶段|Mode|Option|Example|Step|Stage|Case)\s*([一二三四五六七八九十0-9]+)\s*[：:．.、-]/i
 
 function isTableRow(line: string): boolean {
   return /^\s*\|.*\|\s*$/.test(line)

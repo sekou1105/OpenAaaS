@@ -2,8 +2,11 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { httpFetch, httpFetchWithRedirect, parseServerError, uploadWithFiles } from '@/composables/useHttp'
 import { friendlyErrorMessage } from '@/utils/error'
+import { i18n } from '@/i18n'
 import { loadState, saveState } from './persist'
 import { estimateDurations, type DurationEstimate } from '@/utils/estimate'
+
+const t = i18n.global.t
 
 export interface TaskFile {
   id: string
@@ -110,8 +113,8 @@ export const useTaskStore = defineStore('task', () => {
 
     try {
       const server = getServerConfig(params.serverAlias)
-      if (!server) throw new Error('服务器不存在')
-      if (!server.apiKey) throw new Error('服务器未注册')
+      if (!server) throw new Error(t('storeError.serverNotFound'))
+      if (!server.apiKey) throw new Error(t('storeError.serverNotRegistered'))
 
       const baseUrl = server.serverUrl.replace(/\/$/, '')
       const url = `${baseUrl}/api/v1/client/tasks`
@@ -134,7 +137,7 @@ export const useTaskStore = defineStore('task', () => {
 
       if (!res.ok) {
         const message = await parseServerError(res)
-        throw new Error(`提交任务失败: ${res.status} ${message}`)
+        throw new Error(t('storeError.submitFailed', { status: res.status, message }))
       }
 
       const data = await res.json()
@@ -200,14 +203,14 @@ export const useTaskStore = defineStore('task', () => {
         // API Key 失效：停止无效重试，引导用户重新登录
         stopPolling(taskId)
         updateTask(taskId, {
-          pollError: '登录状态已过期（401），请到「设置」重新登录，然后回到任务详情点击「恢复轮询」',
+          pollError: t('storeError.authExpiredPoll'),
         })
         return
       }
 
       if (!res.ok) {
         const message = await parseServerError(res)
-        throw new Error(`查询失败: ${res.status} ${message}`)
+        throw new Error(t('storeError.queryFailed', { status: res.status, message }))
       }
 
       const data = await res.json()
@@ -269,7 +272,7 @@ export const useTaskStore = defineStore('task', () => {
         stopPolling(taskId)
         const raw = err instanceof Error ? err.message : String(err)
         const friendly = friendlyErrorMessage(raw)
-        const pollMsg = `轮询失败次数过多，已停止。原因：${friendly}`
+        const pollMsg = t('storeError.pollTooManyFailures', { reason: friendly })
         updateTask(taskId, { pollError: pollMsg })
       } else {
         const delay = Math.min(POLL_INTERVAL_MS * 2 ** (failCount - 1), 300000)
@@ -300,10 +303,10 @@ export const useTaskStore = defineStore('task', () => {
 
   async function cancelTask(taskId: string) {
     const task = getTask(taskId)
-    if (!task) throw new Error('任务不存在')
+    if (!task) throw new Error(t('storeError.taskNotFound'))
 
     const server = getServerConfig(task.serverAlias)
-    if (!server || !server.apiKey) throw new Error('服务器配置不存在')
+    if (!server || !server.apiKey) throw new Error(t('storeError.serverConfigMissing'))
 
     const baseUrl = server.serverUrl.replace(/\/$/, '')
     const url = `${baseUrl}/api/v1/client/tasks/${encodeURIComponent(taskId)}/cancel`
@@ -314,7 +317,7 @@ export const useTaskStore = defineStore('task', () => {
 
     if (!res.ok) {
       const message = await parseServerError(res)
-      throw new Error(`取消任务失败: ${res.status} ${message}`)
+      throw new Error(t('storeError.cancelFailed', { status: res.status, message }))
     }
 
     const data = await res.json()
@@ -343,7 +346,7 @@ export const useTaskStore = defineStore('task', () => {
 
       if (!res.ok) {
         const message = await parseServerError(res)
-        throw new Error(`获取文件列表失败: ${res.status} ${message}`)
+        throw new Error(t('storeError.fetchFilesFailed', { status: res.status, message }))
       }
 
       const data = await res.json()
@@ -384,8 +387,8 @@ export const useTaskStore = defineStore('task', () => {
    */
   async function retryTask(taskId: string): Promise<string> {
     const task = getTask(taskId)
-    if (!task) throw new Error('任务不存在')
-    if (!isTerminalStatus(task.status)) throw new Error('任务尚未结束，无法重试')
+    if (!task) throw new Error(t('storeError.taskNotFound'))
+    if (!isTerminalStatus(task.status)) throw new Error(t('storeError.taskNotFinished'))
 
     return submitTask({
       serverAlias: task.serverAlias,

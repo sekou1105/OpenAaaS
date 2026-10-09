@@ -6,6 +6,7 @@ export interface PersistedState {
   services?: Record<string, unknown>
   tasks?: unknown[]
   guideSeen?: boolean
+  locale?: string
 }
 
 export function loadState(): PersistedState {
